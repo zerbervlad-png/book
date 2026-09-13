@@ -53,7 +53,9 @@ struct MarketplaceView: View {
                 if !model.listings.isEmpty {
                     Section("Transfer offers") {
                         ForEach(model.listings) { item in
-                            NavigationLink(value: item) {
+                            NavigationLink {
+                                EventDetailView(item: item)
+                            } label: {
                                 ListingRow(item: item)
                             }
                         }
@@ -62,7 +64,9 @@ struct MarketplaceView: View {
                 Section("Discover") {
                     ForEach(model.items) { item in
                         if let event = item.event {
-                            NavigationLink(value: item) {
+                            NavigationLink {
+                                EventDetailView(item: item)
+                            } label: {
                                 EventRow(event: event, resource: item.resource)
                             }
                         }
@@ -74,9 +78,6 @@ struct MarketplaceView: View {
             }
             .searchable(text: $model.query)
             .navigationTitle("Marketplace")
-            .navigationDestination(for: MarketplaceItemDTO.self) { item in
-                EventDetailView(item: item)
-            }
             .task { await model.search() }
             .refreshable { await model.search() }
             .onDisappear { model.cancelPendingSearch() }

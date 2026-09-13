@@ -71,7 +71,7 @@ struct AnyEncodable: Encodable {
 
 struct AccessRightRow: View {
     let right: AccessRightDTO
-    let onList: (String) -> Void
+    let onList: (String) async -> Void
     @State private var isListing = false
     @State private var enteredPrice = ""
 
@@ -97,7 +97,10 @@ struct AccessRightRow: View {
                     HStack {
                         TextField("Price (optional)", text: $enteredPrice)
                             .keyboardType(.numberPad)
-                        Button("List") { onList(enteredPrice); isListing = false }
+                        Button("List") {
+                            Task { await onList(enteredPrice) }
+                            isListing = false
+                        }
                             .buttonStyle(.borderedProminent)
                     }
                 } else {
