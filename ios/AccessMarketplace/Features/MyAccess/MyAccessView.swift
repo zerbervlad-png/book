@@ -54,7 +54,7 @@ struct MyAccessView: View {
             await appModel.reload()
             transferError = nil
         } catch {
-            transferError = (error as? LocalizedError)?.errorDescription
+            transferError = (error as? LocalizedError)?.errorDescription ?? "Failed to list for sale"
         }
     }
 }
@@ -182,7 +182,7 @@ struct AccessQRView: View {
                 qrImage = image
             }
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Failed to load code"
         }
     }
 }

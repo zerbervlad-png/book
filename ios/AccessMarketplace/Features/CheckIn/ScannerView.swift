@@ -66,41 +66,51 @@ struct ScannerView: View {
         .padding()
         .navigationTitle("Check-in")
         .onAppear {
-            camera.onCode = { code in
+            camera.onCode = { [weak model] code in
+                guard let model else { return }
                 Task { await model.submit(code: code, gps: nil) }
             }
             camera.start()
         }
-        .onDisappear { camera.stop() }
+        .onDisappear {
+            camera.onCode = nil
+            camera.stop()
+        }
     }
 }
 
-/// Thin AVCaptureSession wrapper.
+/// Thin AVCaptureSession wrapper. All session work is confined to a private
+/// serial queue to avoid data races on `configured` / session state.
 final class CameraScanner: NSObject, ObservableObject, AVCaptureMetadataOutputObjectsDelegate {
     let session = AVCaptureSession()
     private let output = AVCaptureMetadataOutput()
-    var onCode: ((String) -> Void)?
+    private let sessionQueue = DispatchQueue(label: "am.scanner.session")
     private var configured = false
+
+    var onCode: ((String) -> Void)?
 
     lazy var view: some View = {
         ScannerPreviewView(session: session)
     }()
 
     func start() {
-        Task.detached {
+        sessionQueue.async { [self] in
             // request camera permission first — without it the preview stays black
             if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
-                await AVCaptureDevice.requestAccess(for: .video)
+                // Semaphore wait is safe here: this runs off the main thread.
+                let semaphore = DispatchSemaphore(value: 0)
+                AVCaptureDevice.requestAccess(for: .video) { _ in semaphore.signal() }
+                semaphore.wait()
             }
             guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
-            if !self.configured { self.configure() }
-            if !self.session.isRunning { self.session.startRunning() }
+            if !configured { configure() }
+            if !session.isRunning { session.startRunning() }
         }
     }
 
     func stop() {
-        Task.detached {
-            if self.session.isRunning { self.session.stopRunning() }
+        sessionQueue.async { [self] in
+            if session.isRunning { session.stopRunning() }
         }
     }
 

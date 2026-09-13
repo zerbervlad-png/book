@@ -16,6 +16,19 @@ RESOURCE → EVENT/CONTEXT → ACCESS → AVAILABILITY → RESERVATION → OWNER
 | `backend/` | FastAPI + SQLAlchemy. Полная доменная модель ТЗ (раздел 76), движки, API (раздел 38), тесты (разделы 62–65) |
 | `ios/` | SwiftUI-клиент: MVVM, async/await, единый networking/auth layer, динамический UX (разделы 41–43, 78–79) |
 | `docs/` | Архитектурная документация |
+| `setup.sh` | One-command macOS setup: backend + Xcode-проект + запуск |
+
+## Быстрый старт на Mac (одна команда)
+
+```bash
+git clone https://github.com/zerbervlad-png/book.git && cd book && bash setup.sh
+```
+
+Скрипт сам: поставит Homebrew/XcodeGen (если нет), создаст venv бэкенда,
+определит IP Mac и пропишет его в iOS-приложение, запустит бэкенд в отдельном
+окне Terminal, сгенерирует `AccessMarketplace.xcodeproj` и откроет его в Xcode.
+Дальше в Xcode: выбрать **iPhone 15 Pro Max** (симулятор) или своё устройство → ⌘R.
+Для реального iPhone: тот же Wi-Fi, что у Mac, и включённый Developer Mode.
 
 ## Ключевые архитектурные решения (по ТЗ)
 

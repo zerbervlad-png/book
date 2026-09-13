@@ -14,11 +14,6 @@ struct TokenDTO: Codable {
     let accessToken: String
     let user: UserDTO
 
-    enum CodingKeys: String, CodingKey {
-        case accessToken = "accessToken"
-        case user
-    }
-
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: AnyKey.self)
         accessToken = try c.decode(String.self, forKey: AnyKey("access_token"))

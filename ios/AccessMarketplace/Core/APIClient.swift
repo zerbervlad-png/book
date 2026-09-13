@@ -50,7 +50,7 @@ struct APIEnvelope: Decodable {
 final class APIClient {
     static let shared = APIClient()
 
-    var baseURL = URL(string: "http://localhost:8000/api")!
+    var baseURL = URL(string: ServerConfig.apiBaseURL)!
     var token: String?
 
     private let decoder: JSONDecoder = {

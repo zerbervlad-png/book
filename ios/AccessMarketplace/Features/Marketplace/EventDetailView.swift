@@ -18,16 +18,26 @@ final class EventDetailViewModel: ObservableObject {
         do {
             resources = try await APIClient.shared.request(
                 "GET", "events/\(event.id)/resources", as: [ResourceDTO].self)
-            for resource in resources {
-                if let av: AvailabilityDTO = try? await APIClient.shared.request(
-                    "GET", "resources/\(resource.id)/availability",
-                    as: AvailabilityDTO.self) {
-                    availability[resource.id] = av
+            availability = await withTaskGroup(
+                of: (Int, AvailabilityDTO?).self
+            ) { group in
+                for resource in resources {
+                    group.addTask {
+                        let av: AvailabilityDTO? = try? await APIClient.shared.request(
+                            "GET", "resources/\(resource.id)/availability",
+                            as: AvailabilityDTO.self)
+                        return (resource.id, av)
+                    }
                 }
+                var dict: [Int: AvailabilityDTO] = [:]
+                for await (id, av) in group {
+                    if let av { dict[id] = av }
+                }
+                return dict
             }
             error = nil
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Failed to load event"
         }
     }
 
@@ -61,9 +71,8 @@ final class EventDetailViewModel: ObservableObject {
             }
             error = nil
             await load()
-            await appModel.reload()
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Failed to get access"
             joinedMessage = nil
         }
     }
@@ -90,7 +99,10 @@ struct EventDetailView: View {
                     ForEach(model.resources) { resource in
                         ResourceRow(resource: resource,
                                     availability: model.availability[resource.id]) {
-                            Task { await model.getAccess(to: resource) }
+                            Task {
+                                await model.getAccess(to: resource)
+                                await appModel.reload()
+                            }
                         }
                     }
                 }

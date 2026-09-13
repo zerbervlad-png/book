@@ -21,7 +21,7 @@ final class MarketplaceViewModel: ObservableObject {
                 "GET", "transfers/listings", as: [MarketplaceItemDTO].self)) ?? []
             error = nil
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Search failed"
         }
     }
 
@@ -33,6 +33,10 @@ final class MarketplaceViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             await search()
         }
+    }
+
+    func cancelPendingSearch() {
+        searchTask?.cancel()
     }
 }
 
@@ -75,8 +79,9 @@ struct MarketplaceView: View {
             }
             .task { await model.search() }
             .refreshable { await model.search() }
-            .onChange(of: model.query) { model.searchDebounced() }
-            .onChange(of: model.onlyVerified) { Task { await model.search() } }
+            .onDisappear { model.cancelPendingSearch() }
+            .onChange(of: model.query) { _, _ in model.searchDebounced() }
+            .onChange(of: model.onlyVerified) { _, _ in Task { await model.search() } }
         }
     }
 }
