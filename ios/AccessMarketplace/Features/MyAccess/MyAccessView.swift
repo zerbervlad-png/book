@@ -4,7 +4,6 @@ import SwiftUI
 struct MyAccessView: View {
     @EnvironmentObject var appModel: AppModel
     @State private var transferError: String?
-    @State private var listingPrice: [Int: String] = [:]
 
     var body: some View {
         NavigationStack {
@@ -15,8 +14,8 @@ struct MyAccessView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(appModel.myRights) { right in
-                        AccessRightRow(right: right, priceText: listingPrice[right.id] ?? "") {
-                            price in await listForSale(right, price: price)
+                        AccessRightRow(right: right) { price in
+                            await listForSale(right, price: price)
                         }
                     }
                 }
@@ -37,8 +36,13 @@ struct MyAccessView: View {
     }
 
     private func listForSale(_ right: AccessRightDTO, price: String) async {
+        let trimmed = price.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty, Int(trimmed) == nil {
+            transferError = "Price must be a whole number"
+            return
+        }
         do {
-            let value = Int(price)
+            let value = Int(trimmed)
             let body: [String: AnyEncodable?] = [
                 "access_right_id": AnyEncodable(right.id),
                 "price": value.map { AnyEncodable($0) },
@@ -67,7 +71,6 @@ struct AnyEncodable: Encodable {
 
 struct AccessRightRow: View {
     let right: AccessRightDTO
-    let priceText: String
     let onList: (String) -> Void
     @State private var isListing = false
     @State private var enteredPrice = ""
@@ -162,7 +165,12 @@ struct AccessQRView: View {
     }
 
     private func loadCode() async {
-        struct CodeDTO: Codable { let tokenCode: String; let oneTimeCode: String }
+        struct CodeDTO: Decodable {
+            let oneTimeCode: String
+            enum CodingKeys: String, CodingKey {
+                case oneTimeCode = "one_time_code"
+            }
+        }
         do {
             let dto: CodeDTO = try await APIClient.shared.request(
                 "GET", "/access/\(right.id)/code", as: CodeDTO.self)

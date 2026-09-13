@@ -5,6 +5,7 @@ lives in engines; routers are thin. The backend is the single source of truth.
 """
 import time
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -63,8 +64,14 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    def _safe(e: dict) -> dict:
+        ctx = e.get("ctx")
+        if ctx is not None:
+            e = dict(e)
+            e["ctx"] = {k: str(v) for k, v in ctx.items()}
+        return e
     return JSONResponse(status_code=422, content={
-        "detail": {"code": "VALIDATION_ERROR", "message": exc.errors()[:5]}})
+        "detail": {"code": "VALIDATION_ERROR", "message": [_safe(e) for e in exc.errors()[:5]]}})
 
 
 PREFIX = settings.API_PREFIX
@@ -75,9 +82,7 @@ for router in (auth.router, organizers.router, events.router, resources.router,
     app.include_router(router, prefix=PREFIX)
 
 
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
+def _bootstrap_admin() -> None:
     # Bootstrap admin account if none exists (change the password in production!)
     with SessionLocal() as db:
         if not db.scalar(select(User).where(User.role == UserRole.ADMIN)):
@@ -88,6 +93,16 @@ def startup() -> None:
                 role=UserRole.ADMIN,
             ))
             db.commit()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    _bootstrap_admin()
+    yield
+
+
+app.router.lifespan_context = lifespan
 
 
 @app.get("/health")

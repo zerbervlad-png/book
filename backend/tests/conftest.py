@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 _tmp = tempfile.mkdtemp(prefix="am-test-")
 os.environ["AM_DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
 os.environ.setdefault("AM_JWT_SECRET", "test-secret-" + "x" * 56)
+# the full suite makes far more than the default 240 mutations per minute
+os.environ.setdefault("AM_RATE_LIMIT", "100000")
 
 from app.core.database import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402

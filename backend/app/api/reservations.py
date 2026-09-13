@@ -35,6 +35,8 @@ def create_reservation(payload: ReservationCreate, db: Session = Depends(get_db)
 @router.get("/my", response_model=list[ReservationOut])
 def my_reservations(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     reservation_engine.sweep_expired(db)
+    # sweeping expires reservations and frees capacity — persist it
+    db.commit()
     from app.models import Reservation
     return db.scalars(select(Reservation).where(
         Reservation.user_id == user.id).order_by(Reservation.created_at.desc())).all()
@@ -83,7 +85,7 @@ def pay(reservation_id: int, payload: PaymentCreate, db: Session = Depends(get_d
     reservation = db.get(Reservation, reservation_id)
     if not reservation or reservation.user_id != user.id:
         raise HTTPException(404, "Reservation not found")
-    resource = db.get(Resource, reservation.resource_id) or reservation.resource
+    resource = db.get(Resource, reservation.resource_id)
     try:
         payment = payment_engine.authorize(
             db, payer_user_id=user.id, payee_user_id=None,

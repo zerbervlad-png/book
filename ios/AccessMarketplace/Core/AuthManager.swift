@@ -49,7 +49,7 @@ final class AuthManager: ObservableObject {
     func loadMe() async {
         do {
             user = try await APIClient.shared.request("GET", "/users/me", as: UserDTO.self)
-        } catch let APIError.unauthorized {
+        } catch APIError.unauthorized {
             logout()
         } catch {}
     }
@@ -70,7 +70,6 @@ enum Keychain {
             kSecAttrAccount as String: key,
         ]
         SecItemDelete(query as CFDictionary)
-        query.forEach { _ in }
         var attrs = query
         attrs[kSecValueData as String] = data
         SecItemAdd(attrs as CFDictionary, nil)

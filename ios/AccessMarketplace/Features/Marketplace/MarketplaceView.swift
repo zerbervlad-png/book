@@ -9,6 +9,7 @@ final class MarketplaceViewModel: ObservableObject {
     @Published var query = ""
     @Published var onlyVerified = false
     @Published var error: String?
+    private var searchTask: Task<Void, Never>?
 
     func search() async {
         var path = "marketplace/search?limit=50"
@@ -23,6 +24,16 @@ final class MarketplaceViewModel: ObservableObject {
             self.error = (error as? LocalizedError)?.errorDescription
         }
     }
+
+    /// Debounced search so typing doesn't fire a request per keystroke.
+    func searchDebounced() {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            await search()
+        }
+    }
 }
 
 struct MarketplaceView: View {
@@ -32,6 +43,9 @@ struct MarketplaceView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Toggle("Verified only", isOn: $model.onlyVerified)
+                }
                 if !model.listings.isEmpty {
                     Section("Transfer offers") {
                         ForEach(model.listings) { item in
@@ -55,15 +69,14 @@ struct MarketplaceView: View {
                 }
             }
             .searchable(text: $model.query)
-            .toggle("Verified only", isOn: $model.onlyVerified)
             .navigationTitle("Marketplace")
             .navigationDestination(for: MarketplaceItemDTO.self) { item in
                 EventDetailView(item: item)
             }
             .task { await model.search() }
             .refreshable { await model.search() }
-            .onChange(of: model.query) { await model.search() }
-            .onChange(of: model.onlyVerified) { await model.search() }
+            .onChange(of: model.query) { model.searchDebounced() }
+            .onChange(of: model.onlyVerified) { Task { await model.search() } }
         }
     }
 }

@@ -7,8 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
-    AccessRight, AccessRightStatus, CheckIn, Event, Listing, QueueMembership, Resource,
-    WaitlistEntry,
+    AccessRight, AccessRightStatus, CheckIn, Event, Listing, QueueMembership, Reservation,
+    ReservationStatus, Resource, WaitlistEntry,
 )
 from app.schemas import AvailabilityOut, EventInventoryOut
 
@@ -27,11 +27,19 @@ def compute_resource_availability(db: Session, resource: Resource) -> Availabili
             QueueMembership.active.is_(True),
         )
     ) or 0
+    # held (unconfirmed) reservations also consume capacity — otherwise
+    # two concurrent holds oversell the resource (section 26)
+    held = db.scalar(
+        select(func.count(Reservation.id)).where(
+            Reservation.resource_id == resource.id,
+            Reservation.status.in_([ReservationStatus.CREATED, ReservationStatus.HELD]),
+        )
+    ) or 0
     return AvailabilityOut(
         resource_id=resource.id,
         total_capacity=resource.capacity,
-        confirmed=ar["confirmed"],
-        available=max(resource.capacity - ar["confirmed"], 0),
+        confirmed=ar["confirmed"] + held,
+        available=max(resource.capacity - ar["confirmed"] - held, 0),
         in_queue=in_queue,
         in_waitlist=in_waitlist,
         listed=ar["listed"],

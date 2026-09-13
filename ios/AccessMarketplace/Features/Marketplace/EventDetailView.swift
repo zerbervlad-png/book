@@ -60,6 +60,8 @@ final class EventDetailViewModel: ObservableObject {
                 joinedMessage = nil
             }
             error = nil
+            await load()
+            await appModel.reload()
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription
             joinedMessage = nil

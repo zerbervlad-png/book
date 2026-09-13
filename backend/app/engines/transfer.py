@@ -194,6 +194,7 @@ def pay_for_transfer(db: Session, buyer_id: int, transfer_id: int,
     resource = transfer.access_right.resource
     if resource.requires_organizer_approval:
         transfer.status = TransferStatus.AWAITING_BUYER_CLAIM  # pending organizer approval
+        db.flush()
         organizer = resource.event.organizer
         if organizer:
             notify(db, organizer.user_id, "APPROVAL_REQUIRED",
@@ -271,6 +272,12 @@ def cancel_transfer(db: Session, user_id: int, transfer_id: int) -> Transfer:
             right.owner_user_id == transfer.from_user_id:
         right.status = AccessRightStatus.OWNED
     transfer.status = TransferStatus.CANCELLED
+    # refund a captured payment so the buyer never loses money on a
+    # cancelled/expired transfer (sections 27, 28)
+    payment = db.scalar(select(payment_engine.Payment).where(
+        payment_engine.Payment.transfer_id == transfer.id))
+    if payment and payment.status == payment_engine.PaymentStatus.CAPTURED:
+        payment_engine.refund(db, payment)
     db.flush()
     return transfer
 

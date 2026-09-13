@@ -17,16 +17,17 @@ final class ScannerViewModel: ObservableObject {
         if includeGPS, let gps {
             body["gps"] = AnyEncodable(gps.compactMapValues { $0 })
         }
-        let dto: CheckInResultDTO? = try? await APIClient.shared.request(
-            "POST", "/checkins", body: body.compactMapValues { $0 },
-            as: CheckInResultDTO.self)
-        guard let dto else {
-            result = "Check-in failed — try again"
+        do {
+            let dto: CheckInResultDTO = try await APIClient.shared.request(
+                "POST", "/checkins", body: body.compactMapValues { $0 },
+                as: CheckInResultDTO.self)
+            result = dto.result
+            resultColor = dto.result == "VALID" ? .green : .orange
+        } catch {
+            // offline / backend error — critical ops stay impossible (43)
+            result = (error as? LocalizedError)?.errorDescription ?? "Check-in failed"
             resultColor = .red
-            return
         }
-        result = dto.result
-        resultColor = dto.result == "VALID" ? .green : .orange
     }
 }
 
@@ -87,6 +88,11 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureMetadataOutputOb
 
     func start() {
         Task.detached {
+            // request camera permission first — without it the preview stays black
+            if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+                await AVCaptureDevice.requestAccess(for: .video)
+            }
+            guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
             if !self.configured { self.configure() }
             if !self.session.isRunning { self.session.startRunning() }
         }

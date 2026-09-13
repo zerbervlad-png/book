@@ -33,7 +33,10 @@ def create_listing(payload: ListingCreate, db: Session = Depends(get_db),
     from app.models import AccessRight
     right = db.get(AccessRight, payload.access_right_id)
     if right:
-        fraud.guard_listing_of_used_right(db, right)
+        try:
+            fraud.guard_listing_of_used_right(db, right)
+        except fraud.FraudError as e:
+            raise HTTPException(e.status_code, detail={"code": e.code, "message": e.message})
     try:
         listing = transfer_engine.create_listing(
             db, user.id, payload.access_right_id, payload.price)
@@ -130,6 +133,8 @@ def cancel(transfer_id: int, db: Session = Depends(get_db),
 @router.get("/my", response_model=list[TransferOut])
 def my_transfers(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     transfer_engine.sweep_expired(db)
+    # sweeping expires transfers and refunds captured payments — persist it
+    db.commit()
     return db.scalars(select(Transfer).where(
         (Transfer.from_user_id == user.id) | (Transfer.to_user_id == user.id)
     ).order_by(Transfer.created_at.desc())).all()

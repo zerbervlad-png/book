@@ -22,8 +22,29 @@ enum APIError: LocalizedError {
 }
 
 struct APIEnvelope: Decodable {
+    // Backend error envelope: {"detail": {"code": ..., "message": ...}}
     let code: String?
     let message: String?
+
+    enum CodingKeys: String, CodingKey { case detail }
+    struct Detail: Decodable {
+        let code: String?
+        let message: String?
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys2.self)
+            code = (try? c.decode(String.self, forKey: CodingKeys2.code)) ?? "ERROR"
+            message = (try? c.decode(String.self, forKey: CodingKeys2.message))
+            enum CodingKeys2: String, CodingKey { case code, message }
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let detail = try c.decode(Detail.self, forKey: .detail)
+        code = detail.code
+        message = detail.message
+    }
 }
 
 final class APIClient {
@@ -44,10 +65,26 @@ final class APIClient {
         return e
     }()
 
+    /// Builds a URL from a path that may contain a query string.
+    /// `appendingPathComponent` percent-encodes "?" which breaks queries.
+    private func makeURL(_ path: String) -> URL? {
+        let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
+        guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        let pathPart = parts[0].hasPrefix("/") ? parts[0] : "/" + parts[0]
+        comps.path = comps.path + pathPart
+        if parts.count > 1 {
+            comps.percentEncodedQuery = parts[1]
+        }
+        return comps.url
+    }
+
     func request<Body: Encodable, T: Decodable>(
         _ method: String, _ path: String, body: Body? = nil, as type: T.Type
     ) async throws -> T {
-        var req = URLRequest(url: baseURL.appendingPathComponent(path))
+        guard let url = makeURL(path) else { throw APIError.invalidURL }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
@@ -56,14 +93,16 @@ final class APIClient {
     }
 
     func request<T: Decodable>(_ method: String, _ path: String, as type: T.Type) async throws -> T {
-        var req = URLRequest(url: baseURL.appendingPathComponent(path))
+        guard let url = makeURL(path) else { throw APIError.invalidURL }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         return try await run(req)
     }
 
     func raw(_ method: String, _ path: String) async throws -> Data {
-        var req = URLRequest(url: baseURL.appendingPathComponent(path))
+        guard let url = makeURL(path) else { throw APIError.invalidURL }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (data, response) = try await URLSession.shared.data(for: req)

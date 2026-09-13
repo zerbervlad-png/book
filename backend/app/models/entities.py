@@ -155,7 +155,12 @@ class Queue(Base):
 class QueueMembership(Base):
     """Raw membership before/without a position (e.g. lottery awaiting draw)."""
     __tablename__ = "queue_memberships"
-    __table_args__ = (UniqueConstraint("queue_id", "user_id"),)
+    # at most one ACTIVE membership per queue; historical rows (active = 0)
+    # must not block rejoining after leave
+    __table_args__ = (
+        Index("uq_queue_membership_active", "queue_id", "user_id", unique=True,
+              sqlite_where=text("active = 1"), postgresql_where=text("active = 1")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     queue_id: Mapped[int] = mapped_column(ForeignKey("queues.id"), index=True)
@@ -213,7 +218,13 @@ class Waitlist(Base):
 
 class WaitlistEntry(Base):
     __tablename__ = "waitlist_entries"
-    __table_args__ = (UniqueConstraint("waitlist_id", "user_id"),)
+    # one live entry per user; PASSED/CANCELLED/CONFIRMED rows must not
+    # block rejoining the waitlist
+    __table_args__ = (
+        Index("uq_waitlist_entry_live", "waitlist_id", "user_id", unique=True,
+              sqlite_where=text("status IN ('WAITING','OFFERED')"),
+              postgresql_where=text("status IN ('WAITING','OFFERED')")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     waitlist_id: Mapped[int] = mapped_column(ForeignKey("waitlists.id"), index=True)
@@ -251,9 +262,15 @@ class Reservation(Base):
 class Listing(Base):
     """Marketplace listing (pre-event marketplace — section 51)."""
     __tablename__ = "listings"
+    # at most one ACTIVE listing per access right; closed listings must not
+    # block re-listing after cancel
+    __table_args__ = (
+        Index("uq_listing_active", "access_right_id", unique=True,
+              sqlite_where=text("is_active = 1"), postgresql_where=text("is_active = 1")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    access_right_id: Mapped[int] = mapped_column(ForeignKey("access_rights.id"), unique=True, index=True)
+    access_right_id: Mapped[int] = mapped_column(ForeignKey("access_rights.id"), index=True)
     seller_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     kind: Mapped[TransferKind] = mapped_column(Enum(TransferKind), default=TransferKind.RESALE)
     price: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None => free transfer
