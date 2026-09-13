@@ -81,7 +81,7 @@ final class APIClient {
     }
 
     func request<Body: Encodable, T: Decodable>(
-        _ method: String, _ path: String, body: Body? = nil, as type: T.Type
+        _ method: String, _ path: String, body: Body? = nil, as type: T.Type = T.self
     ) async throws -> T {
         guard let url = makeURL(path) else { throw APIError.invalidURL }
         var req = URLRequest(url: url)
@@ -105,7 +105,7 @@ final class APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, _) = try await URLSession.shared.data(for: req)
         return data
     }
 
