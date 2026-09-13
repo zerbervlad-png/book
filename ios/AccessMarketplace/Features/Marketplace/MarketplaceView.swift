@@ -194,7 +194,8 @@ struct EventRow: View {
                 }
                 if let startsAt = event.startsAt {
                     Label(startsAt.formatted(
-                        date: .abbreviated, time: .shortened, locale: Locale(identifier: "ru_RU")),
+                        .dateTime.day().month().hour().minute()
+                        .locale(Locale(identifier: "ru_RU"))),
                           systemImage: "clock")
                         .font(.caption).foregroundStyle(.secondary)
                 }

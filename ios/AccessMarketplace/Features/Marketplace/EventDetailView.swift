@@ -62,7 +62,7 @@ final class EventDetailViewModel: ObservableObject {
                 let reservation: ReservationDTO = try await APIClient.shared.request(
                     "POST", "/reservations", body: ["resource_id": resource.id],
                     as: ReservationDTO.self)
-                let confirmed: ReservationDTO = try await APIClient.shared.request(
+                let _: ReservationDTO = try await APIClient.shared.request(
                     "POST", "/reservations/\(reservation.id)/confirm", body: EmptyBody(),
                     as: ReservationDTO.self)
                 joinedMessage = "Готово — бронь подтверждена"
@@ -133,7 +133,8 @@ struct EventDetailView: View {
             if let startsAt = model.event.startsAt {
                 LabeledContent {
                     Text(startsAt.formatted(
-                        date: .long, time: .shortened, locale: Locale(identifier: "ru_RU")))
+                        .dateTime.day().month(.wide).year().hour().minute()
+                        .locale(Locale(identifier: "ru_RU"))))
                         .multilineTextAlignment(.trailing)
                 } label: {
                     Label("Начало", systemImage: "clock")
