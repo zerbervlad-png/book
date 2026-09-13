@@ -32,9 +32,26 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 echo "==> [3/5] Preparing backend..."
+# The backend needs Python >= 3.10 (uses `X | None` syntax); macOS/Xcode ship 3.9
+PYTHON=""
+for candidate in python3.13 python3.12 python3.11 python3.10 /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+      PYTHON="$candidate"; break
+    fi
+  fi
+done
+if [ -z "$PYTHON" ]; then
+  echo "    Python >= 3.10 not found — installing via Homebrew..."
+  brew install python
+  PYTHON="$(brew --prefix)/bin/python3"
+fi
+echo "    Using $PYTHON ($($PYTHON --version))"
 cd backend
-if [ ! -d .venv ]; then python3 -m venv .venv; fi
+if [ ! -d .venv ]; then "$PYTHON" -m venv .venv; fi
 source .venv/bin/activate
+python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
+  || { echo "    venv is on an old Python — recreating..."; deactivate; rm -rf .venv; "$PYTHON" -m venv .venv; source .venv/bin/activate; }
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
 echo "    Seeding demo data + test accounts..."
