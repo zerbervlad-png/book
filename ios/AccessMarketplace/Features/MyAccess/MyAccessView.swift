@@ -1,4 +1,4 @@
-// MyAccessView.swift — my rights, transfer/resale, QR display (sections 9, 12, 14).
+// MyAccessView.swift — мои права, передача/перепродажа, QR (разделы 9, 12, 14 ТЗ).
 import SwiftUI
 
 struct MyAccessView: View {
@@ -8,37 +8,69 @@ struct MyAccessView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("My access rights") {
+                Section {
                     if appModel.myRights.isEmpty {
-                        Text("No access rights yet")
-                            .foregroundStyle(.secondary)
+                        ContentUnavailableView(
+                            "Пока нет прав доступа",
+                            systemImage: "ticket",
+                            description: Text("Встаньте в очередь или забронируйте слот на главном экране"))
+                            .frame(maxWidth: .infinity)
+                            .listRowBackground(Color.clear)
                     }
                     ForEach(appModel.myRights) { right in
                         AccessRightRow(right: right) { price in
                             await listForSale(right, price: price)
                         }
                     }
+                } header: {
+                    Label("Мои права доступа", systemImage: "ticket")
                 }
-                Section("Reservations") {
-                    ForEach(appModel.myReservations) { reservation in
-                        LabeledContent("Reservation #\(reservation.id)",
-                                       value: reservation.status)
+                if !appModel.myReservations.isEmpty {
+                    Section {
+                        ForEach(appModel.myReservations) { reservation in
+                            HStack {
+                                Image(systemName: "calendar.badge.checkmark")
+                                    .foregroundStyle(.tint)
+                                Text("Бронь №\(reservation.id)")
+                                Spacer()
+                                Text(reservationTitle(reservation.status))
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Capsule().fill(.tint.opacity(0.12)))
+                            }
+                        }
+                    } header: {
+                        Label("Брони", systemImage: "calendar")
                     }
                 }
                 if let transferError {
-                    Text(transferError).font(.footnote).foregroundStyle(.red)
+                    Section {
+                        Label(transferError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote).foregroundStyle(.red)
+                    }
                 }
             }
-            .navigationTitle("My Access")
+            .navigationTitle("Мой доступ")
             .task { await appModel.reload() }
             .refreshable { await appModel.reload() }
+        }
+    }
+
+    private func reservationTitle(_ status: String) -> String {
+        switch status {
+        case "CREATED": return "Создана"
+        case "HELD": return "Держится"
+        case "CONFIRMED": return "Подтверждена"
+        case "CANCELLED": return "Отменена"
+        case "EXPIRED": return "Истекла"
+        default: return status
         }
     }
 
     private func listForSale(_ right: AccessRightDTO, price: String) async {
         let trimmed = price.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty, Int(trimmed) == nil {
-            transferError = "Price must be a whole number"
+            transferError = "Цена должна быть целым числом"
             return
         }
         do {
@@ -54,7 +86,7 @@ struct MyAccessView: View {
             await appModel.reload()
             transferError = nil
         } catch {
-            transferError = (error as? LocalizedError)?.errorDescription ?? "Failed to list for sale"
+            transferError = (error as? LocalizedError)?.errorDescription ?? "Не удалось выставить на продажу"
         }
     }
 }
@@ -76,58 +108,88 @@ struct AccessRightRow: View {
     @State private var enteredPrice = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
                 if let position = right.position {
-                    Text("#\(position)").font(.title2.bold())
+                    ZStack {
+                        Circle().fill(.tint.opacity(0.12))
+                        Text("\(position)")
+                            .font(.title3.bold()).monospacedDigit()
+                    }
+                    .frame(width: 44, height: 44)
                 }
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(kindTitle).font(.headline)
                     Text(right.tokenCode).font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(right.status)
+                Text(statusTitle(right.status))
                     .font(.caption.bold())
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(Capsule().fill(statusColor.opacity(0.2)))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .foregroundStyle(statusColor(right.status))
+                    .background(Capsule().fill(statusColor(right.status).opacity(0.15)))
             }
             if right.status == "OWNED" && right.transferable {
                 if isListing {
-                    HStack {
-                        TextField("Price (optional)", text: $enteredPrice)
+                    HStack(spacing: 8) {
+                        TextField("Цена (пусто = передать даром)", text: $enteredPrice)
                             .keyboardType(.numberPad)
-                        Button("List") {
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 10)
+                                .fill(.quaternary.opacity(0.5)))
+                        Button {
                             Task { await onList(enteredPrice) }
                             isListing = false
+                        } label: {
+                            Text("Выставить").font(.subheadline.bold())
                         }
-                            .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent)
                     }
                 } else {
-                    // 56: UI hides transfer when policy forbids it
-                    Button("Transfer / Sell") { isListing = true }
-                        .buttonStyle(.bordered)
+                    // 56: UI скрывает передачу, если политика запрещает
+                    Button {
+                        isListing = true
+                    } label: {
+                        Label("Передать / продать", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
-            NavigationLink("Show QR") {
+            NavigationLink {
                 AccessQRView(right: right)
+            } label: {
+                Label("Показать QR-код", systemImage: "qrcode")
+                    .font(.subheadline.bold())
             }
         }
+        .padding(.vertical, 4)
     }
 
     private var kindTitle: String {
         switch right.kind {
-        case "QUEUE_POSITION": return "Queue position"
-        case "TICKET": return "Ticket"
-        case "SLOT": return "Time slot"
-        case "WAITLIST_PRIORITY": return "Waitlist priority"
-        case "REGISTRATION": return "Registration"
-        default: return "Access pass"
+        case "QUEUE_POSITION": return "Позиция в очереди"
+        case "TICKET": return "Билет"
+        case "SLOT": return "Тайм-слот"
+        case "WAITLIST_PRIORITY": return "Приоритет в листе ожидания"
+        case "REGISTRATION": return "Регистрация"
+        default: return "Пропуск"
         }
     }
 
-    private var statusColor: Color {
-        switch right.status {
+    private func statusTitle(_ status: String) -> String {
+        switch status {
+        case "OWNED": return "Активно"
+        case "LISTED": return "На продаже"
+        case "TRANSFER_PENDING": return "Передаётся"
+        case "USED": return "Использовано"
+        default: return status
+        }
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status {
         case "OWNED": return .green
         case "LISTED": return .blue
         case "TRANSFER_PENDING": return .orange
@@ -146,24 +208,45 @@ struct AccessQRView: View {
     var body: some View {
         VStack(spacing: 24) {
             if let error {
-                Text(error).foregroundStyle(.red)
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
             } else {
-                if let qrImage {
-                    Image(uiImage: qrImage)
-                        .resizable().interpolation(.none)
-                        .frame(width: 240, height: 240)
-                } else {
-                    ProgressView()
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+                    if let qrImage {
+                        Image(uiImage: qrImage)
+                            .resizable().interpolation(.none)
+                            .frame(width: 220, height: 220)
+                            .padding(12)
+                    } else {
+                        ProgressView().frame(width: 220, height: 220)
+                    }
                 }
                 if let code = oneTimeCode {
-                    Text(code).font(.title2.bold().monospaced())
+                    VStack(spacing: 6) {
+                        Text("Одноразовый код")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(code)
+                            .font(.title2.bold().monospaced())
+                            .tracking(2)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 14)
+                        .fill(.tint.opacity(0.08)))
                 }
-                Text(right.tokenCode).font(.footnote.monospaced())
+                Text(right.tokenCode)
+                    .font(.footnote.monospaced())
                     .foregroundStyle(.secondary)
             }
+            Spacer()
         }
         .padding()
-        .navigationTitle("Your access")
+        .navigationTitle("Ваш доступ")
+        .navigationBarTitleDisplayMode(.inline)
         .task { await loadCode() }
     }
 
@@ -178,14 +261,14 @@ struct AccessQRView: View {
             let dto: CodeDTO = try await APIClient.shared.request(
                 "GET", "/access/\(right.id)/code", as: CodeDTO.self)
             oneTimeCode = dto.oneTimeCode
-            // QR bytes come from the backend with the auth header — the client
-            // cannot forge the payload (section 42)
+            // QR приходит с бэкенда с auth-заголовком — клиент не может
+            // подделать payload (раздел 42 ТЗ)
             let data = try await APIClient.shared.raw("GET", "/access/\(right.id)/qr")
             if let image = UIImage(data: data) {
                 qrImage = image
             }
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Failed to load code"
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось загрузить QR"
         }
     }
 }

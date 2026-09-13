@@ -1,5 +1,5 @@
-// EventDetailView.swift — section 22 event card + section 79 dynamic UX.
-// The UI is built from resourceType / accessModel / policies sent by backend.
+// EventDetailView.swift — карточка события + динамический UX (раздел 79 ТЗ).
+// UI строится из resourceType / accessModel / policies, присылаемых бэкендом.
 import SwiftUI
 
 @MainActor
@@ -37,12 +37,12 @@ final class EventDetailViewModel: ObservableObject {
             }
             error = nil
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Failed to load event"
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось загрузить событие"
         }
     }
 
-    /// One unified entry point — the backend decides what "getting access"
-    /// means for this resource type (sections 80-83).
+    /// Единая точка входа — бэкенд сам решает, что значит «получить доступ»
+    /// для данного типа ресурса (разделы 80–83 ТЗ).
     func getAccess(to resource: ResourceDTO) async {
         do {
             switch resource.type {
@@ -51,13 +51,13 @@ final class EventDetailViewModel: ObservableObject {
                     "POST", "queues/resources/\(resource.id)/join", body: EmptyBody(),
                     as: QueueJoinResultDTO.self)
                 joinedMessage = result.accessRight.map { right in
-                    right.position.map { "You are #\($0) in the queue" } ?? "Joined — awaiting draw"
-                } ?? "Joined — awaiting draw"
+                    right.position.map { "Вы №\($0) в очереди" } ?? "Вы в очереди — ждём жеребьёвки"
+                } ?? "Вы в очереди — ждём жеребьёвки"
             case "WAITLIST":
                 let entry: WaitlistEntryDTO = try await APIClient.shared.request(
                     "POST", "waitlists/resources/\(resource.id)/join", body: EmptyBody(),
                     as: WaitlistEntryDTO.self)
-                joinedMessage = "Waitlist #\(entry.position)"
+                joinedMessage = "Вы №\(entry.position) в листе ожидания"
             case "TICKET", "TIME_SLOT", "EVENT_REGISTRATION", "ACCESS_PASS":
                 let reservation: ReservationDTO = try await APIClient.shared.request(
                     "POST", "/reservations", body: ["resource_id": resource.id],
@@ -65,14 +65,14 @@ final class EventDetailViewModel: ObservableObject {
                 let confirmed: ReservationDTO = try await APIClient.shared.request(
                     "POST", "/reservations/\(reservation.id)/confirm", body: EmptyBody(),
                     as: ReservationDTO.self)
-                joinedMessage = "Confirmed — \(confirmed.status)"
+                joinedMessage = "Готово — бронь подтверждена"
             default:
                 joinedMessage = nil
             }
             error = nil
             await load()
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Failed to get access"
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось получить доступ"
             joinedMessage = nil
         }
     }
@@ -95,7 +95,7 @@ struct EventDetailView: View {
         List {
             header
             if !model.resources.isEmpty {
-                Section("Ways to get access") {
+                Section {
                     ForEach(model.resources) { resource in
                         ResourceRow(resource: resource,
                                     availability: model.availability[resource.id]) {
@@ -105,33 +105,66 @@ struct EventDetailView: View {
                             }
                         }
                     }
+                } header: {
+                    Label("Способы получить доступ", systemImage: "key.horizontal")
                 }
             }
             if let message = model.joinedMessage {
-                Section { Label(message, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green) }
+                Section {
+                    Label(message, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.headline)
+                }
             }
             if let error = model.error {
-                Section { Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red) }
+                Section {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
             }
         }
         .navigationTitle(model.event.title)
+        .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(); await appModel.reload() }
     }
 
     private var header: some View {
         Section {
-            LabeledContent("Starts", value: model.event.startsAt?
-                .formatted(date: .long, time: .shortened) ?? "—")
-            if let city = model.event.city { LabeledContent("City", value: city) }
-            if let organizer = model.event.organizer {
-                LabeledContent("Organizer", value: organizer.name)
+            if let startsAt = model.event.startsAt {
+                LabeledContent {
+                    Text(startsAt.formatted(
+                        date: .long, time: .shortened, locale: Locale(identifier: "ru_RU")))
+                        .multilineTextAlignment(.trailing)
+                } label: {
+                    Label("Начало", systemImage: "clock")
+                }
             }
-            LabeledContent("Status", value: model.event.status)
-            LabeledContent("Verification", value: model.event.verificationStatus)
-            Text(model.event.description)
-                .font(.body).foregroundStyle(.secondary)
+            if let city = model.event.city, !city.isEmpty {
+                LabeledContent { Text(city) } label: {
+                    Label("Город", systemImage: "mappin.and.ellipse")
+                }
+            }
+            if let organizer = model.event.organizer {
+                LabeledContent { Text(organizer.name) } label: {
+                    Label("Организатор", systemImage: "person.badge.shield.checkmark")
+                }
+            }
+            LabeledContent { Text(statusTitle) } label: {
+                Label("Статус", systemImage: "info.circle")
+            }
+            if !model.event.description.isEmpty {
+                Text(model.event.description)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    private var statusTitle: String {
+        switch model.event.verificationStatus {
+        case "VERIFIED", "ORGANIZER_VERIFIED", "OFFICIAL": return "Проверено"
+        default: return "На проверке"
         }
     }
 }
@@ -142,23 +175,42 @@ struct ResourceRow: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(resource.name).font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(resource.name).font(.headline)
+                    if resource.priceBase > 0 {
+                        Text("\(resource.priceBase) ₽")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Spacer()
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
                     .disabled(!canJoin)
             }
             if let av = availability {
-                Text("Available \(av.available) / \(av.totalCapacity) · in queue \(av.inQueue)")
-                    .font(.caption).foregroundStyle(.secondary)
+                // прогресс заполненности
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: Double(av.totalCapacity - av.available),
+                                 total: Double(max(av.totalCapacity, 1)))
+                        .tint(av.available > 0 ? .green : .red)
+                    HStack(spacing: 12) {
+                        Label("Свободно \(av.available)", systemImage: "checkmark.circle")
+                        Label("В очереди \(av.inQueue)", systemImage: "person.2")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
             if !resource.isTransferable {
-                Label("Transfer disabled by organizer", systemImage: "lock")
-                    .font(.caption2).foregroundStyle(.orange)
+                Label("Передача запрещена организатором", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
         }
+        .padding(.vertical, 4)
     }
 
     private var canJoin: Bool {
@@ -167,12 +219,12 @@ struct ResourceRow: View {
 
     private var actionTitle: String {
         switch resource.type {
-        case "PHYSICAL_QUEUE", "EVENT_QUEUE": return "Join queue"
-        case "WAITLIST": return "Join waitlist"
-        case "TICKET": return "Buy ticket"
-        case "TIME_SLOT": return "Book slot"
-        case "EVENT_REGISTRATION": return "Register"
-        default: return "Get access"
+        case "PHYSICAL_QUEUE", "EVENT_QUEUE": return "В очередь"
+        case "WAITLIST": return "В лист ожидания"
+        case "TICKET": return "Купить"
+        case "TIME_SLOT": return "Забронировать"
+        case "EVENT_REGISTRATION": return "Регистрация"
+        default: return "Получить"
         }
     }
 }

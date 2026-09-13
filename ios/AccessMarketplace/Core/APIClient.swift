@@ -12,11 +12,11 @@ enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "Invalid request"
-        case .unauthorized: return "Please sign in again"
+        case .invalidURL: return "Некорректный запрос"
+        case .unauthorized: return "Сессия истекла — войдите заново"
         case .server(_, let message, _): return message
-        case .network(let e): return e.localizedDescription
-        case .decoding: return "Unexpected server response"
+        case .network: return "Нет соединения с сервером. Проверьте, что бэкенд запущен"
+        case .decoding: return "Неожиданный ответ сервера"
         }
     }
 }
@@ -122,7 +122,7 @@ final class APIClient {
         guard (200..<300).contains(http.statusCode) else {
             let env = try? decoder.decode(APIEnvelope.self, from: data)
             throw APIError.server(code: env?.code ?? "ERROR",
-                                  message: env?.message ?? "Request failed",
+                                  message: env?.message ?? "Ошибка запроса",
                                   status: http.statusCode)
         }
         do {

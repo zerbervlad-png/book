@@ -12,6 +12,7 @@ struct AccessMarketplaceApp: App {
             RootView()
                 .environmentObject(auth)
                 .environmentObject(appModel)
+                .tint(.indigo)
         }
     }
 }
@@ -32,13 +33,13 @@ struct MainTabView: View {
     var body: some View {
         TabView {
             MarketplaceView()
-                .tabItem { Label("Marketplace", systemImage: "square.grid.2x2") }
+                .tabItem { Label("Маркет", systemImage: "square.grid.2x2") }
             MyAccessView()
-                .tabItem { Label("My Access", systemImage: "ticket") }
+                .tabItem { Label("Мой доступ", systemImage: "ticket") }
             ScannerView()
-                .tabItem { Label("Check-in", systemImage: "qrcode.viewfinder") }
+                .tabItem { Label("Вход", systemImage: "qrcode.viewfinder") }
             ProfileView()
-                .tabItem { Label("Profile", systemImage: "person") }
+                .tabItem { Label("Профиль", systemImage: "person") }
         }
     }
 }

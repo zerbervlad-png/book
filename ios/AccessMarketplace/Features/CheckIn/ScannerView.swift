@@ -1,5 +1,5 @@
-// ScannerView.swift — check-in scanner (sections 29, 49).
-// Result is always decided by the backend; GPS is optional auxiliary input.
+// ScannerView.swift — сканер чек-ина (разделы 29, 49 ТЗ).
+// Результат всегда определяет бэкенд; GPS — лишь вспомогательный сигнал.
 import SwiftUI
 import AVFoundation
 
@@ -21,12 +21,24 @@ final class ScannerViewModel: ObservableObject {
             let dto: CheckInResultDTO = try await APIClient.shared.request(
                 "POST", "/checkins", body: body.compactMapValues { $0 },
                 as: CheckInResultDTO.self)
-            result = dto.result
+            result = resultTitle(dto.result)
             resultColor = dto.result == "VALID" ? .green : .orange
         } catch {
-            // offline / backend error — critical ops stay impossible (43)
-            result = (error as? LocalizedError)?.errorDescription ?? "Check-in failed"
+            // оффлайн / ошибка бэкенда — критичные операции невозможны (43)
+            result = (error as? LocalizedError)?.errorDescription ?? "Ошибка чек-ина"
             resultColor = .red
+        }
+    }
+
+    private func resultTitle(_ result: String) -> String {
+        switch result {
+        case "VALID": return "Проход разрешён"
+        case "USED": return "Уже использован"
+        case "EXPIRED": return "Срок истёк"
+        case "TRANSFERRED": return "Уже передан"
+        case "NOT_YET_VALID": return "Ещё не действует"
+        case "CANCELLED": return "Отменён"
+        default: return "Недействителен"
         }
     }
 }
@@ -38,33 +50,61 @@ struct ScannerView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            camera.view
-                .frame(maxHeight: 320)
-                .cornerRadius(12)
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+            // зона камеры с рамкой прицеливания
+            ZStack {
+                camera.view
+                    .frame(maxHeight: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(.white.opacity(0.4), lineWidth: 2)
+                    .frame(width: 220, height: 220)
+                Label("Наведите на QR-код", systemImage: "viewfinder")
+                    .font(.caption)
+                    .padding(8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .offset(y: 140)
+            }
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(.quaternary))
+
             if let result = model.result {
                 Label(result, systemImage: model.resultColor == .green
                       ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .font(.title3.bold())
                     .foregroundStyle(model.resultColor)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 14)
+                        .fill(model.resultColor.opacity(0.1)))
             }
-            Toggle("Attach GPS (auxiliary only)", isOn: $model.includeGPS)
-                .font(.footnote)
-            HStack {
-                TextField("Or enter code manually", text: $manualCode)
+
+            Toggle(isOn: $model.includeGPS) {
+                Label("Приложить GPS (необязательно)", systemImage: "location")
+                    .font(.footnote)
+            }
+            .padding(.horizontal)
+
+            HStack(spacing: 8) {
+                TextField("Или введите код вручную", text: $manualCode)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
-                Button("Submit") {
+                    .textInputAutocapitalization(.characters)
+                Button {
                     Task { await model.submit(code: manualCode, gps: nil) }
+                } label: {
+                    Text("Проверить").bold()
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(manualCode.isEmpty)
             }
             .padding(.horizontal)
-            Text("GPS is never required and never proves queue position.")
-                .font(.caption2).foregroundStyle(.secondary)
+
+            Text("GPS никогда не требуется и не доказывает позицию в очереди.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
         .padding()
-        .navigationTitle("Check-in")
+        .navigationTitle("Чек-ин")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             camera.onCode = { [weak model] code in
                 guard let model else { return }
@@ -79,8 +119,8 @@ struct ScannerView: View {
     }
 }
 
-/// Thin AVCaptureSession wrapper. All session work is confined to a private
-/// serial queue to avoid data races on `configured` / session state.
+/// Обёртка над AVCaptureSession. Вся работа с сессией — на приватной
+/// последовательной очереди, чтобы избежать гонок на `configured`.
 final class CameraScanner: NSObject, ObservableObject, AVCaptureMetadataOutputObjectsDelegate {
     let session = AVCaptureSession()
     private let output = AVCaptureMetadataOutput()
@@ -95,9 +135,9 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureMetadataOutputOb
 
     func start() {
         sessionQueue.async { [self] in
-            // request camera permission first — without it the preview stays black
+            // сначала запрашиваем разрешение на камеру — иначе превью чёрное
             if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
-                // Semaphore wait is safe here: this runs off the main thread.
+                // ожидание семафором безопасно: мы не в главном потоке
                 let semaphore = DispatchSemaphore(value: 0)
                 AVCaptureDevice.requestAccess(for: .video) { _ in semaphore.signal() }
                 semaphore.wait()
