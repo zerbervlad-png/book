@@ -86,6 +86,11 @@ def confirm_reservation(db: Session, user_id: int, reservation_id: int) -> Reser
     if reservation.status != ReservationStatus.HELD:
         raise ReservationError("INVALID_STATE",
                                f"Reservation is {reservation.status.value}", 409)
+    # a paid reservation cannot be confirmed without a captured payment —
+    # otherwise an AccessRight would be issued with money never taken
+    if reservation.amount > 0 and reservation.payment_status != "CAPTURED":
+        raise ReservationError("PAYMENT_REQUIRED",
+                               "Reservation must be paid before confirmation", 409)
 
     import secrets as _secrets
     from app.core.security import generate_token_code

@@ -23,10 +23,11 @@ targets:
         CFBundleDisplayName: AccessMarketplace
         UILaunchScreen: {}
         NSCameraUsageDescription: Scan QR codes for event check-in
-        NSLocationWhenInUseUsageDescription: GPS is used only as an optional auxiliary signal and never proves queue position
-        # Dev backend runs over plain HTTP on the LAN — allowed for testing only
+        # Dev backend runs over plain HTTP — local network only.
+        # NSAllowsArbitraryLoads is a common App Review rejection; the local
+        # networking exception covers LAN HTTP backends during development.
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
     settings:
       base:
         TARGETED_DEVICE_FAMILY: "1,2"

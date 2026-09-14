@@ -153,6 +153,7 @@ class AuditEventType(str, enum.Enum):  # 32
     EVENT_CREATED = "EventCreated"
     EVENT_VERIFIED = "EventVerified"
     EVENT_CANCELLED = "EventCancelled"
+    EVENT_REPORTED = "EventReported"
     QUEUE_JOINED = "QueueJoined"
     POSITION_ASSIGNED = "PositionAssigned"
     RESERVATION_CREATED = "ReservationCreated"

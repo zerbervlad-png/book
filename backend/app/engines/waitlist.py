@@ -130,6 +130,16 @@ def confirm_offer(db: Session, user_id: int, entry_id: int) -> Reservation:
                             f"Entry is {entry.status.value}", 409)
     resource = entry.waitlist.resource
 
+    # the freed place may have been taken by a direct reservation while the
+    # offer was open — verify availability before issuing a new one
+    from app.engines.availability import compute_resource_availability
+    availability = compute_resource_availability(db, resource)
+    if availability.available <= 0:
+        entry.status = WaitlistEntryStatus.PASSED
+        db.flush()
+        raise WaitlistError("NO_AVAILABILITY",
+                            "The place was taken while your offer was open", 409)
+
     reservation = Reservation(
         resource_id=resource.id,
         user_id=user_id,

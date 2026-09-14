@@ -20,9 +20,13 @@ def create_resource(payload: ResourceCreate, db: Session = Depends(get_db),
     event = db.get(Event, payload.event_id)
     if not event:
         raise HTTPException(404, "Event not found")
-    if not (event.organizer and event.organizer.user_id == user.id) \
-            and user.role.value != "ADMIN":
-        raise HTTPException(403, "Only the event organizer can add resources")
+    is_organizer = event.organizer and event.organizer.user_id == user.id
+    is_admin = user.role.value == "ADMIN"
+    # TZ section 5: users create their own queues — the author of a user-requested
+    # event may add resources (queues) to it, but only to their own event.
+    is_event_author = event.created_by_user_id == user.id
+    if not (is_organizer or is_admin or is_event_author):
+        raise HTTPException(403, "Only the event organizer or author can add resources")
     if payload.type not in VALID_TYPES:
         raise HTTPException(400, f"Invalid resource type; allowed: {sorted(VALID_TYPES)}")
     resource = Resource(

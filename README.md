@@ -2,11 +2,13 @@
 
 Реализация единого технического задания «Universal Access, Reservation, Queue & Event
 Marketplace»: платформа ограниченного права доступа, где **очередь — лишь один из Access
-Models** (разделы 1, 74, 80, 87 ТЗ).
+Models** (разделы 1, 74, 80, 87 ТЗ), доработанная до **маркетплейса мест в очередях**:
+пользователь может найти/создать очередь, занять место, передать или продать его
+другому пользователю с escrow-расчётом и комиссией сервиса.
 
 ```
 RESOURCE → EVENT/CONTEXT → ACCESS → AVAILABILITY → RESERVATION → OWNERSHIP
-        → TRANSFER → PAYMENT → VERIFICATION → CHECK-IN/ACCESS
+         → TRANSFER → PAYMENT → VERIFICATION → CHECK-IN/ACCESS
 ```
 
 ## Состав
@@ -85,7 +87,9 @@ QR, simultaneous purchase/transfer, GPS-spoof, offline-поведение кли
 | Переменная | По умолчанию | Описание |
 |---|---|---|
 | `AM_DATABASE_URL` | `sqlite:///./access_marketplace.db` | строка подключения SQLAlchemy |
-| `AM_JWT_SECRET` | random | секрет JWT (сгенерируйте и зафиксируйте) |
+| `AM_JWT_SECRET` | dev-значение | секрет JWT (обязательно задайте в production — фиксированный, иначе токены слетают при рестарте) |
+| `AM_ADMIN_EMAIL` / `AM_ADMIN_PASSWORD` | `admin@access.marketplace` / `ChangeMe-Admin-2026!` | учётка bootstrap-админа (всегда переопределяйте в production) |
+| `AM_CORS_ORIGINS` | `*` | разрешённые CORS-источники через запятую; при `*` credentials отключены |
 | `AM_RESERVATION_TTL` | 900 | TTL резерва, сек |
 | `AM_WAITLIST_OFFER_TTL` | 1800 | окно подтверждения waitlist-оффера |
 | `AM_PLATFORM_FEE` | 5 | комиссия платформы, % |
@@ -107,10 +111,24 @@ auxiliary, раздел 10). `APIClient.baseURL` направьте на раз�
 
 ```
 10:00  User A вступает в очередь на Concert X → позиция #148 (AccessRight AT-…)
-12:00  User A выставляет позицию на marketplace
-13:15  User B покупает: PAYMENT → VERIFICATION → TOKEN LOCK
+12:00  User A выставляет позицию на marketplace (цена + комиссия видны покупателю)
+13:15  User B покупает: блокировка → PAYMENT → VERIFICATION → TOKEN LOCK
 13:16  Позиция #148 → User B; токен A инвалидирован, B получил новый
 18:00  User B приходит на мероприятие
 18:05  QR check-in (одноразовый код)
 20:00  Event
 ```
+
+## Сделка «продавец → покупатель» (доработка)
+
+```
+Продавец:  Моё место → «Передать место» → Продать (цена) / Даром → Выставить
+Покупатель: Маркет → «Передают и продают» → карточка места (цена, комиссия,
+            окно сделки) → «Купить место» → подтверждение → расчёт (escrow)
+            → место закрепляется за покупателем, новый токен в «Мой доступ»
+Отмена:    любой участник до завершения → автоматический refund;
+           истечение окна сделки (TTL) → блокировка снимается, место возвращается
+```
+
+Комиссия настраивается: `AM_PLATFORM_FEE` (по умолчанию 5 %) и `fee_percent`
+на уровне ресурса. Обоснование выбора модели — `docs/monetization.md`.

@@ -81,15 +81,28 @@ def cancel(reservation_id: int, db: Session = Depends(get_db),
 @router.post("/{reservation_id}/pay", response_model=PaymentOut, status_code=201)
 def pay(reservation_id: int, payload: PaymentCreate, db: Session = Depends(get_db),
         user: User = Depends(get_current_user)):
-    from app.models import Reservation
+    from app.models import Reservation, ReservationStatus
     reservation = db.get(Reservation, reservation_id)
     if not reservation or reservation.user_id != user.id:
         raise HTTPException(404, "Reservation not found")
+    if reservation.status != ReservationStatus.HELD:
+        raise HTTPException(409, detail={"code": "INVALID_STATE",
+                                         "message": f"Reservation is {reservation.status.value}"})
+    if reservation.expires_at is not None and reservation.expires_at < reservation_engine.utcnow():
+        raise HTTPException(409, detail={"code": "RESERVATION_EXPIRED",
+                                         "message": "Reservation has expired"})
+    if reservation.payment_status == "CAPTURED":
+        existing = db.scalar(select(payment_engine.Payment).where(
+            payment_engine.Payment.reservation_id == reservation.id))
+        if existing:
+            return existing  # idempotent
     resource = db.get(Resource, reservation.resource_id)
     try:
+        # the amount is always taken from the reservation — the client must
+        # never control how much money is captured
         payment = payment_engine.authorize(
             db, payer_user_id=user.id, payee_user_id=None,
-            amount=payload.amount or reservation.amount,
+            amount=reservation.amount,
             idempotency_key=payload.idempotency_key,
             reservation_id=reservation.id, fee_percent=resource.fee_percent)
         payment_engine.capture(db, payment)

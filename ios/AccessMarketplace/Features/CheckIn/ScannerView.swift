@@ -7,16 +7,26 @@ import AVFoundation
 final class ScannerViewModel: ObservableObject {
     @Published var result: String?
     @Published var resultColor: Color = .green
-    @Published var includeGPS = false
+    @Published var isSubmitting = false
 
-    func submit(code: String, gps: [String: Double?]?) async {
-        var body: [String: AnyEncodable?] = [
+    private var lastSubmittedCode: String?
+    private var lastSubmittedAt = Date.distantPast
+
+    func submit(code: String) async {
+        // debounce: a QR held in front of the camera fires dozens of frames;
+        // without a cooldown the same token gets POSTed repeatedly
+        let now = Date()
+        if isSubmitting || (code == lastSubmittedCode && now.timeIntervalSince(lastSubmittedAt) < 3) {
+            return
+        }
+        lastSubmittedCode = code
+        lastSubmittedAt = now
+        isSubmitting = true
+        defer { isSubmitting = false }
+        let body: [String: AnyEncodable?] = [
             "token": AnyEncodable(code),
             "method": AnyEncodable("QR"),
         ]
-        if includeGPS, let gps {
-            body["gps"] = AnyEncodable(gps.compactMapValues { $0 })
-        }
         do {
             let dto: CheckInResultDTO = try await APIClient.shared.request(
                 "POST", "/checkins", body: body.compactMapValues { $0 },
@@ -55,16 +65,37 @@ struct ScannerView: View {
                 camera.view
                     .frame(maxHeight: 320)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(.white.opacity(0.4), lineWidth: 2)
-                    .frame(width: 220, height: 220)
-                Label("Наведите на QR-код", systemImage: "viewfinder")
-                    .font(.caption)
-                    .padding(8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .offset(y: 140)
+                if camera.cameraDenied {
+                    VStack(spacing: 12) {
+                        Image(systemName: "camera.badge.ellipsis")
+                            .font(.largeTitle)
+                        Text("Нет доступа к камере")
+                            .font(.headline)
+                        Text("Разрешите доступ к камере в настройках, чтобы сканировать QR-коды.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("Открыть настройки") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(24)
+                } else {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(.white.opacity(0.4), lineWidth: 2)
+                        .frame(width: 220, height: 220)
+                    Label("Наведите на QR-код", systemImage: "viewfinder")
+                        .font(.caption)
+                        .padding(8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .offset(y: 140)
+                }
             }
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(.quaternary))
+            .accessibilityLabel("Камера для сканирования QR-кода")
 
             if let result = model.result {
                 Label(result, systemImage: model.resultColor == .green
@@ -75,12 +106,9 @@ struct ScannerView: View {
                     .background(RoundedRectangle(cornerRadius: 14)
                         .fill(model.resultColor.opacity(0.1)))
             }
-
-            Toggle(isOn: $model.includeGPS) {
-                Label("Приложить GPS (необязательно)", systemImage: "location")
-                    .font(.footnote)
+            if model.isSubmitting {
+                ProgressView()
             }
-            .padding(.horizontal)
 
             HStack(spacing: 8) {
                 TextField("Или введите код вручную", text: $manualCode)
@@ -88,7 +116,7 @@ struct ScannerView: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.characters)
                 Button {
-                    Task { await model.submit(code: manualCode, gps: nil) }
+                    Task { await model.submit(code: manualCode) }
                 } label: {
                     Text("Проверить").bold()
                 }
@@ -108,7 +136,7 @@ struct ScannerView: View {
         .onAppear {
             camera.onCode = { [weak model] code in
                 guard let model else { return }
-                Task { await model.submit(code: code, gps: nil) }
+                Task { await model.submit(code: code) }
             }
             camera.start()
         }
@@ -127,11 +155,14 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureMetadataOutputOb
     private let sessionQueue = DispatchQueue(label: "am.scanner.session")
     private var configured = false
 
+    @Published var cameraDenied = false
+
     var onCode: ((String) -> Void)?
 
-    lazy var view: some View = {
+    // opaque types are not allowed on lazy stored properties — use a computed property
+    var view: ScannerPreviewView {
         ScannerPreviewView(session: session)
-    }()
+    }
 
     func start() {
         sessionQueue.async { [self] in
@@ -142,7 +173,11 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureMetadataOutputOb
                 AVCaptureDevice.requestAccess(for: .video) { _ in semaphore.signal() }
                 semaphore.wait()
             }
-            guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+            guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+                DispatchQueue.main.async { self.cameraDenied = true }
+                return
+            }
+            DispatchQueue.main.async { self.cameraDenied = false }
             if !configured { configure() }
             if !session.isRunning { session.startRunning() }
         }

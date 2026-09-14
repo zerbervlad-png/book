@@ -73,19 +73,17 @@ def main():
         client.post("/api/organizers", json={"name": "Прайм Промоушн"},
                     headers=auth(org_token))
 
-        # --- Событие 1: рок-фестиваль ---
+        # --- Событие 1: рок-фестиваль (объект, вокруг которого существует очередь;
+        #     приложение НЕ продаёт билеты на фестиваль — ТЗ, раздел 8) ---
         fest = make_event(client, org_token, title="Рок-фестиваль «Волга Fest»",
                           description="Два дня, три сцены, сорок групп. "
                                       "Электронная очередь вместо толпы у входа.",
                           city="Казань", capacity=30000, category="CONCERT")
         queue = make_resource(client, org_token, fest["id"], "EVENT_QUEUE",
                               "Общая очередь на территорию", 30000)
-        tickets = make_resource(client, org_token, fest["id"], "TICKET",
-                                "Входной билет (взрослый)", 20000,
-                                price_base=3500, max_resale_price=4500)
         fanzone = make_resource(client, org_token, fest["id"], "TIME_SLOT",
-                                "Фан-зона у главной сцены (слоты по 2 часа)",
-                                2000, price_base=1200)
+                                 "Фан-зона у главной сцены (слоты по 2 часа)",
+                                 2000, price_base=1200)
         client.post(f"/api/events/{fest['id']}/verify", headers=auth(org_token))
 
         # --- Событие 2: стендап в баре ---
@@ -130,7 +128,7 @@ def main():
             client.post(f"/api/reservations/{r.json()['id']}/confirm",
                         headers=auth(demo_token))
 
-        # --- другой пользователь продаёт билет — раздел «Предложения» ---
+        # --- другой пользователь продаёт свою позицию — раздел «Предложения» ---
         bot_token = register(client, "bot@access.marketplace", "Bot1234pass!",
                              "Кирилл Перепродажа")
         if bot_token:
@@ -142,6 +140,27 @@ def main():
                     "access_right_id": right["id"], "price": 2900},
                     headers=auth(bot_token))
                 print("Создано предложение о перепродаже позиции за 2900 руб.")
+
+        # --- очередь, созданная обычным пользователем: АЗС (ТЗ, раздел 5) ---
+        # источник USER_REQUEST, статус PENDING_VERIFICATION — до проверки
+        r = client.post("/api/events", json={
+            "title": "АЗС Газпромнефть — Ленинградское шоссе, 25",
+            "description": "Живая очередь на заправку: колонки, мойка и магазин. "
+                           "Занимайте место удалённо и передавайте его другим.",
+            "starts_at": "2026-09-20T08:00:00Z",
+            "city": "Москва", "address": "Ленинградское шоссе, 25",
+            "capacity": 40, "category": "GAS_STATION",
+        }, headers=auth(demo_token))
+        if r.status_code == 201:
+            gas_event = r.json()
+            client.post("/api/resources", json={
+                "event_id": gas_event["id"], "type": "PHYSICAL_QUEUE",
+                "name": "Очередь на колонки", "capacity": 40,
+                "queue_policy": "FIFO",
+            }, headers=auth(demo_token))
+            print("Создана пользовательская очередь на АЗС (ожидает проверки)")
+        elif r.status_code == 409:
+            print("Очередь на АЗС уже существует")
 
         print("Готово. Аккаунты:")
         print(f"  Пользователь: {DEMO_EMAIL} / {DEMO_PASSWORD}")

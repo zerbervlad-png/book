@@ -47,6 +47,19 @@
 интерфейса authorize/capture/refund с пробросом webhook; бизнес-логика transfer
 не меняется (раздел 71).
 
+## Доработка «маркетплейс мест в очередях» (новое ТЗ)
+
+| Требование ТЗ | Реализация |
+|---|---|
+| 2. Механика продавец→покупатель | `Listing` (выставление) → `GET /transfers/listings/{id}/quote` (цена+комиссия) → `POST /transfers/buy` (блокировка места) → `POST /transfers/{id}/pay` (escrow-расчёт) → `complete_transfer` (место переходит, токен пересоздаётся). Отмена любой стороной → refund (`cancel_transfer`) |
+| 3. Финансовая модель | Вариант A — комиссия из суммы продавца, конфигурируемая (`AM_PLATFORM_FEE`, `Resource.fee_percent`). Решение: `docs/monetization.md` |
+| 4. Статусы сделки | `TransferStatus` + `Listing.is_active` + `PaymentStatus`; TTL сделки `AM_TRANSFER_TTL`, ленивый sweep `sweep_expired` |
+| 5. Очереди создаются пользователями | `POST /events` (source=USER_REQUEST) + `POST /resources` (разрешено автору события) |
+| 6. Верификация и жалобы | `engines/verification.py` (canonical_key, дубликаты) + `EventReport` (`POST /events/{id}/report`, `GET /events/reports/open` для модерации) |
+| 8. Фестиваль — объект, не товар | seed: у фестиваля очередь+слоты, продажа билетов приложением убрана |
+| 9. UX сделки | iOS: `ListingDetailView` (цена/комиссия/подтверждение/результат), `CreateQueueView`, `TransferHistoryRow`, меню «Передать место» (продажа/даром) |
+| 10. Защита от мошенничества | частичный уникальный индекс одного открытого Transfer на право, escrow, refund при отмене/истечении, `engines/fraud.py`, audit log |
+
 ## Известные ограничения MVP
 
 - SQLite + naive-UTC (для PostgreSQL нужен timezone-адаптер)

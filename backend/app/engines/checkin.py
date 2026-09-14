@@ -76,9 +76,21 @@ def check_in(db: Session, presented: str, method: CheckInMethod,
         return _finish(db, right, method, CheckInResult.INVALID, presented,
                        checked_by_user_id, gps)
 
-    # VALID — mark used exactly once
-    right.status = AccessRightStatus.USED
-    right.used_at = utcnow()
+    # VALID — mark used exactly once. The status flip is an atomic
+    # compare-and-swap so two concurrent requests with the same token can
+    # never both succeed (section 13/61: no double spending).
+    from sqlalchemy import update
+    updated = db.execute(
+        update(AccessRight)
+        .where(AccessRight.id == right.id,
+               AccessRight.status == AccessRightStatus.OWNED)
+        .values(status=AccessRightStatus.USED, used_at=utcnow())
+    )
+    if updated.rowcount != 1:
+        # another request won the race — the token is already consumed
+        return _finish(db, right, method, CheckInResult.USED, presented,
+                       checked_by_user_id, gps)
+    db.refresh(right)
     result = _finish(db, right, method, CheckInResult.VALID, presented,
                      checked_by_user_id, gps)
     return CheckInResult.VALID, result[1], right

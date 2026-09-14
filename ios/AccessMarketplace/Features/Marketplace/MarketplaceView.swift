@@ -7,20 +7,30 @@ final class MarketplaceViewModel: ObservableObject {
     @Published var listings: [MarketplaceItemDTO] = []
     @Published var query = ""
     @Published var onlyVerified = false
+    @Published var category = "ALL"
+    @Published var showCreateQueue = false
     @Published var error: String?
     @Published var isLoading = false
     private var searchTask: Task<Void, Never>?
 
+    static let categories: [(id: String, title: String)] = [
+        ("ALL", "Все"), ("GAS_STATION", "АЗС"), ("CONCERT", "Концерты"),
+        ("FESTIVAL", "Фестивали"), ("CLUB", "Клубы"), ("RESTAURANT", "Рестораны"),
+        ("STORE", "Магазины"), ("CONFERENCE", "Конференции"), ("OTHER", "Другое"),
+    ]
+
     func search() async {
         var path = "marketplace/search?limit=50"
-        if !query.isEmpty { path += "&q=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
+        if !query.isEmpty { path += "&q=\(APIClient.encodeQueryValue(query))" }
         if onlyVerified { path += "&verified_only=true" }
+        if category != "ALL" { path += "&category=\(category)" }
         isLoading = true
         defer { isLoading = false }
         do {
             items = try await APIClient.shared.request("GET", path, as: [MarketplaceItemDTO].self)
+            // предложения с котировкой комиссии (ТЗ 2, 9: покупатель видит стоимость)
             listings = (try? await APIClient.shared.request(
-                "GET", "transfers/listings", as: [MarketplaceItemDTO].self)) ?? []
+                "GET", "marketplace/listings?limit=50", as: [MarketplaceItemDTO].self)) ?? []
             error = nil
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось загрузить маркет"
@@ -55,12 +65,18 @@ struct MarketplaceView: View {
                             .font(.subheadline)
                     }
                     .tint(.green)
+                    Picker("Категория", selection: $model.category) {
+                        ForEach(MarketplaceViewModel.categories, id: \.id) { item in
+                            Text(item.title).tag(item.id)
+                        }
+                    }
+                    .font(.subheadline)
                 }
                 if !model.listings.isEmpty {
                     Section {
                         ForEach(model.listings) { item in
                             NavigationLink {
-                                EventDetailView(item: item)
+                                ListingDetailView(item: item)
                             } label: {
                                 ListingRow(item: item)
                             }
@@ -107,13 +123,28 @@ struct MarketplaceView: View {
                     }
                 }
             }
-            .searchable(text: $model.query, prompt: "Поиск: концерт, бар, конференция…")
+            .searchable(text: $model.query, prompt: "Поиск: АЗС, концерт, бар, очередь…")
             .navigationTitle("Маркет")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        model.showCreateQueue = true
+                    } label: {
+                        Label("Создать очередь", systemImage: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $model.showCreateQueue, onDismiss: {
+                Task { await model.search() }
+            }) {
+                CreateQueueView()
+            }
             .task { await model.search() }
             .refreshable { await model.search() }
             .onDisappear { model.cancelPendingSearch() }
             .onChange(of: model.query) { model.searchDebounced() }
             .onChange(of: model.onlyVerified) { Task { await model.search() } }
+            .onChange(of: model.category) { Task { await model.search() } }
         }
     }
 }
@@ -132,6 +163,7 @@ struct ListingRow: View {
                     .foregroundStyle(.white)
             }
             .frame(width: 40, height: 40)
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.event?.title ?? "Предложение")
                     .font(.headline)
@@ -142,14 +174,19 @@ struct ListingRow: View {
                 }
             }
             Spacer()
-            if let price = item.listing?.price {
+            if let quote = item.quote, let price = quote.price {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(price)")
+                    Text("\(price) ₽")
                         .font(.title3.bold())
-                    Text("₽")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if quote.feeAmount > 0 {
+                        Text("к оплате \(quote.buyTotal ?? price) ₽ · комиссия \(quote.feeAmount) ₽")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+            } else if let price = item.listing?.price {
+                Text("\(price) ₽")
+                    .font(.title3.bold())
             } else {
                 Text("Даром")
                     .font(.headline)
@@ -184,6 +221,7 @@ struct EventRow: View {
                     .foregroundStyle(.white)
             }
             .frame(width: 44, height: 44)
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(event.title).font(.headline)
@@ -224,10 +262,16 @@ struct EventRow: View {
     private var categoryIcon: String {
         switch event.category {
         case "CONCERT": return "music.note"
+        case "FESTIVAL": return "music.note.list"
         case "SHOW": return "theatermasks"
         case "CONFERENCE": return "person.3"
         case "SPORT": return "sportscourt"
         case "RESTAURANT": return "fork.knife"
+        case "GAS_STATION": return "fuelpump.fill"
+        case "STORE": return "bag.fill"
+        case "CLUB": return "speaker.wave.2.fill"
+        case "SERVICE": return "wrench.and.screwdriver"
+        case "GOVERNMENT": return "building.columns"
         default: return "sparkles"
         }
     }
@@ -235,10 +279,16 @@ struct EventRow: View {
     private var categoryGradient: [Color] {
         switch event.category {
         case "CONCERT": return [.pink, .purple]
+        case "FESTIVAL": return [.purple, .orange]
         case "SHOW": return [.orange, .pink]
         case "CONFERENCE": return [.blue, .cyan]
         case "SPORT": return [.green, .teal]
         case "RESTAURANT": return [.orange, .yellow]
+        case "GAS_STATION": return [.green, .blue]
+        case "STORE": return [.teal, .indigo]
+        case "CLUB": return [.indigo, .pink]
+        case "SERVICE": return [.gray, .blue]
+        case "GOVERNMENT": return [.blue, .gray]
         default: return [.indigo, .blue]
         }
     }

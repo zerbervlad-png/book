@@ -30,6 +30,42 @@ class TransferError(Exception):
         self.status_code = status_code
 
 
+def quote_listing(db: Session, listing: Listing) -> dict:
+    """Commission preview for the buyer before confirming a purchase (TZ sections
+    3, 9). The fee is withheld from the seller, so the buyer pays the listed price."""
+    listing = db.get(Listing, listing.id) or listing
+    if not listing or not listing.is_active:
+        raise TransferError("NOT_FOUND", "Listing not found", 404)
+    resource = listing.access_right.resource
+    price = listing.price
+    if price is None:
+        return {
+            "listing_id": listing.id,
+            "kind": listing.kind.value,
+            "price": None,
+            "currency": listing.currency,
+            "fee_percent": 0.0,
+            "fee_amount": 0,
+            "seller_payout": None,
+            "buyer_total": None,
+            "deal_window_seconds": settings.TRANSFER_TTL_SECONDS,
+        }
+    fee_amount = payment_engine.compute_fee(price, resource.fee_percent)
+    fee_percent = (settings.DEFAULT_PLATFORM_FEE_PERCENT
+                   if resource.fee_percent is None else resource.fee_percent)
+    return {
+        "listing_id": listing.id,
+        "kind": listing.kind.value,
+        "price": price,
+        "currency": listing.currency,
+        "fee_percent": fee_percent,
+        "fee_amount": fee_amount,
+        "seller_payout": price - fee_amount,
+        "buyer_total": price,  # Variant A: fee withheld from the seller's amount
+        "deal_window_seconds": settings.TRANSFER_TTL_SECONDS,
+    }
+
+
 def create_listing(db: Session, seller_id: int, access_right_id: int,
                    price: int | None) -> Listing:
     right = _get_owned_right(db, seller_id, access_right_id)
@@ -148,6 +184,13 @@ def _initiate(db: Session, right: AccessRight, buyer_id: int, kind: TransferKind
         db.flush()  # unique partial index enforces single open transfer (13)
     except IntegrityError:
         db.rollback()
+        # a concurrent request with the same idempotency key already created
+        # this transfer — return it instead of failing (section 61)
+        if idempotency_key:
+            existing = db.scalar(select(Transfer).where(
+                Transfer.idempotency_key == idempotency_key))
+            if existing:
+                return existing
         raise TransferError("RIGHT_NOT_TRANSFERABLE",
                             "Access right is already being transferred", 409)
     audit(db, AuditEventType.TRANSFER_CREATED, "Transfer", transfer.id,
@@ -179,6 +222,15 @@ def pay_for_transfer(db: Session, buyer_id: int, transfer_id: int,
     if transfer.status != TransferStatus.AWAITING_PAYMENT:
         raise TransferError("INVALID_STATE",
                             f"Transfer is {transfer.status.value}", 409)
+    if transfer.expires_at is not None and transfer.expires_at < utcnow():
+        raise TransferError("TRANSFER_EXPIRED", "Transfer window has expired", 409)
+    # double-pay guard: a captured payment for this transfer must never be
+    # created twice (different idempotency keys must not bypass this)
+    captured = db.scalar(select(payment_engine.Payment).where(
+        payment_engine.Payment.transfer_id == transfer.id,
+        payment_engine.Payment.status == payment_engine.PaymentStatus.CAPTURED))
+    if captured:
+        return transfer, captured  # already paid — idempotent
 
     fee_percent = transfer.access_right.resource.fee_percent
     pay = payment_engine.authorize(
@@ -272,12 +324,12 @@ def cancel_transfer(db: Session, user_id: int, transfer_id: int) -> Transfer:
             right.owner_user_id == transfer.from_user_id:
         right.status = AccessRightStatus.OWNED
     transfer.status = TransferStatus.CANCELLED
-    # refund a captured payment so the buyer never loses money on a
+    # refund ALL captured payments so the buyer never loses money on a
     # cancelled/expired transfer (sections 27, 28)
-    payment = db.scalar(select(payment_engine.Payment).where(
-        payment_engine.Payment.transfer_id == transfer.id))
-    if payment and payment.status == payment_engine.PaymentStatus.CAPTURED:
-        payment_engine.refund(db, payment)
+    for payment in db.scalars(select(payment_engine.Payment).where(
+            payment_engine.Payment.transfer_id == transfer.id)).all():
+        if payment.status == payment_engine.PaymentStatus.CAPTURED:
+            payment_engine.refund(db, payment)
     db.flush()
     return transfer
 

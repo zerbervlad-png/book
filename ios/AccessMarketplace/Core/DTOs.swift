@@ -180,8 +180,61 @@ struct MarketplaceItemDTO: Codable, Identifiable {
     let event: EventDTO?
     let resource: ResourceDTO?
     let listing: ListingDTO?
+    let quote: PurchaseQuoteDTO?
 
     var id: String { "\(kind)-\(event?.id ?? 0)-\(resource?.id ?? 0)-\(listing?.id ?? 0)" }
+}
+
+struct PurchaseQuoteDTO: Codable {
+    let listingId: Int
+    let kind: String
+    let price: Int?
+    let currency: String
+    let feePercent: Double
+    let feeAmount: Int
+    let sellerPayout: Int?
+    let buyerTotal: Int?
+    let dealWindowSeconds: Int
+}
+
+extension PurchaseQuoteDTO {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        listingId = try c.decode(Int.self, forKey: AnyKey("listing_id"))
+        kind = (try? c.decode(String.self, forKey: AnyKey("kind"))) ?? "RESALE"
+        price = try? c.decode(Int.self, forKey: AnyKey("price"))
+        currency = (try? c.decode(String.self, forKey: AnyKey("currency"))) ?? "RUB"
+        feePercent = (try? c.decode(Double.self, forKey: AnyKey("fee_percent"))) ?? 0
+        feeAmount = (try? c.decode(Int.self, forKey: AnyKey("fee_amount"))) ?? 0
+        sellerPayout = try? c.decode(Int.self, forKey: AnyKey("seller_payout"))
+        buyerTotal = try? c.decode(Int.self, forKey: AnyKey("buyer_total"))
+        dealWindowSeconds = (try? c.decode(Int.self, forKey: AnyKey("deal_window_seconds"))) ?? 0
+    }
+}
+
+struct TransferDTO: Codable, Identifiable {
+    let id: Int
+    let fromUserId: Int
+    let toUserId: Int
+    let kind: String
+    let price: Int?
+    let status: String
+    let createdAt: Date?
+    let completedAt: Date?
+}
+
+extension TransferDTO {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        id = try c.decode(Int.self, forKey: AnyKey("id"))
+        fromUserId = (try? c.decode(Int.self, forKey: AnyKey("from_user_id"))) ?? 0
+        toUserId = (try? c.decode(Int.self, forKey: AnyKey("to_user_id"))) ?? 0
+        kind = (try? c.decode(String.self, forKey: AnyKey("kind"))) ?? "RESALE"
+        price = try? c.decode(Int.self, forKey: AnyKey("price"))
+        status = (try? c.decode(String.self, forKey: AnyKey("status"))) ?? "INITIATED"
+        createdAt = try? c.decode(Date.self, forKey: AnyKey("created_at"))
+        completedAt = try? c.decode(Date.self, forKey: AnyKey("completed_at"))
+    }
 }
 
 struct ListingDTO: Codable, Identifiable {

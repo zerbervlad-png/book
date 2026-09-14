@@ -20,11 +20,23 @@ router = APIRouter(prefix="/checkins", tags=["checkins"])
 def perform_checkin(payload: CheckInRequest, db: Session = Depends(get_db),
                     user: User = Depends(get_current_user)):
     """Self check-in (e.g. physical queue — 30) or operator scan.
-    The operator/organizer of the event may check others in via API."""
+    Only the right's owner, the event organizer or an admin may submit a
+    check-in — otherwise any user could burn someone else's token."""
     try:
         method = CheckInMethod(payload.method)
     except ValueError:
         raise HTTPException(400, f"Invalid method; allowed: {[m.value for m in CheckInMethod]}")
+
+    from app.models import AccessRight
+    probe = db.scalar(select(AccessRight).where(AccessRight.token_code == payload.token.strip()))
+    if probe is not None:
+        is_owner = probe.owner_user_id == user.id
+        is_organizer = probe.resource.event.organizer_id is not None and \
+            probe.resource.event.organizer.user_id == user.id
+        is_admin = user.role.value == "ADMIN"
+        if not (is_owner or is_organizer or is_admin):
+            raise HTTPException(403, "Only the owner, the event organizer or an admin "
+                                     "can check in this token")
 
     if payload.gps:
         # 10 / 49 / 65: auxiliary signal, never a proof

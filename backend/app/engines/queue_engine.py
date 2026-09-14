@@ -152,6 +152,10 @@ def leave_queue(db: Session, user_id: int, resource: Resource) -> None:
         audit(db, AuditEventType.ACCESS_RIGHT_CANCELLED, "AccessRight", right.id,
               actor_user_id=user_id, reason="left_queue")
     db.flush()
+    # a freed capacity-based place must reach the waitlist (section 17)
+    from app.engines import waitlist as waitlist_engine
+    if resource.type.value not in ("PHYSICAL_QUEUE", "EVENT_QUEUE"):
+        waitlist_engine.on_capacity_freed(db, resource)
 
 
 def draw(db: Session, queue: Queue, seed: int | None = None) -> int:

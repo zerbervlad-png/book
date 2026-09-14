@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MyAccessView: View {
     @EnvironmentObject var appModel: AppModel
+    @EnvironmentObject var auth: AuthManager
     @State private var transferError: String?
 
     var body: some View {
@@ -43,6 +44,23 @@ struct MyAccessView: View {
                         Label("Брони", systemImage: "calendar")
                     }
                 }
+                if !appModel.myTransfers.isEmpty {
+                    Section {
+                        ForEach(appModel.myTransfers) { transfer in
+                            TransferHistoryRow(transfer: transfer, myUserId: auth.user?.id ?? 0)
+                        }
+                    } header: {
+                        Label("История сделок", systemImage: "clock.arrow.circlepath")
+                    } footer: {
+                        Text("Все операции сохраняются в неизменяемом журнале на сервере.")
+                    }
+                }
+                if let syncError = appModel.syncError {
+                    Section {
+                        Label(syncError, systemImage: "wifi.exclamationmark")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+                }
                 if let transferError {
                     Section {
                         Label(transferError, systemImage: "exclamationmark.triangle.fill")
@@ -53,17 +71,6 @@ struct MyAccessView: View {
             .navigationTitle("Мой доступ")
             .task { await appModel.reload() }
             .refreshable { await appModel.reload() }
-        }
-    }
-
-    private func reservationTitle(_ status: String) -> String {
-        switch status {
-        case "CREATED": return "Создана"
-        case "HELD": return "Держится"
-        case "CONFIRMED": return "Подтверждена"
-        case "CANCELLED": return "Отменена"
-        case "EXPIRED": return "Истекла"
-        default: return status
         }
     }
 
@@ -101,6 +108,65 @@ struct AnyEncodable: Encodable {
     }
 }
 
+struct TransferHistoryRow: View {
+    let transfer: TransferDTO
+    let myUserId: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isBuying ? "cart.fill" : "arrow.up.circle.fill")
+                .foregroundStyle(isBuying ? .blue : .orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isBuying ? "Покупка места" : "Передача места")
+                    .font(.headline)
+                if let date = transfer.createdAt {
+                    Text(date.formatted(.dateTime.day().month().hour().minute()
+                        .locale(Locale(identifier: "ru_RU"))))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                if let price = transfer.price {
+                    Text("\(price) ₽").font(.subheadline.bold())
+                } else {
+                    Text("Даром").font(.subheadline).foregroundStyle(.green)
+                }
+                Text(statusTitle)
+                    .font(.caption.bold())
+                    .foregroundStyle(statusColor)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var isBuying: Bool { transfer.toUserId == myUserId }
+
+    private var statusTitle: String {
+        switch transfer.status {
+        case "INITIATED": return "Начата"
+        case "AWAITING_PAYMENT": return "Ожидает оплаты"
+        case "AWAITING_BUYER_CLAIM": return "На подтверждении"
+        case "VERIFYING": return "Проверяется"
+        case "TOKEN_LOCKED": return "Заблокировано"
+        case "COMPLETED": return "Передано"
+        case "CANCELLED": return "Отменено"
+        case "REJECTED": return "Отклонено"
+        case "EXPIRED": return "Срок истёк"
+        default: return transfer.status
+        }
+    }
+
+    private var statusColor: Color {
+        switch transfer.status {
+        case "COMPLETED": return .green
+        case "CANCELLED", "REJECTED", "EXPIRED": return .red
+        default: return .orange
+        }
+    }
+}
+
 struct AccessRightRow: View {
     let right: AccessRightDTO
     let onList: (String) async -> Void
@@ -117,6 +183,7 @@ struct AccessRightRow: View {
                             .font(.title3.bold()).monospacedDigit()
                     }
                     .frame(width: 44, height: 44)
+                    .accessibilityLabel("Позиция №\(position)")
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(kindTitle).font(.headline)
@@ -133,7 +200,7 @@ struct AccessRightRow: View {
             if right.status == "OWNED" && right.transferable {
                 if isListing {
                     HStack(spacing: 8) {
-                        TextField("Цена (пусто = передать даром)", text: $enteredPrice)
+                        TextField("Цена, ₽", text: $enteredPrice)
                             .keyboardType(.numberPad)
                             .padding(10)
                             .background(RoundedRectangle(cornerRadius: 10)
@@ -145,16 +212,32 @@ struct AccessRightRow: View {
                             Text("Выставить").font(.subheadline.bold())
                         }
                         .buttonStyle(.borderedProminent)
+                        Button("Отмена") {
+                            isListing = false
+                            enteredPrice = ""
+                        }
+                        .font(.subheadline)
                     }
                 } else {
                     // 56: UI скрывает передачу, если политика запрещает
-                    Button {
-                        isListing = true
+                    // ТЗ 9: продавец выбирает — продать или передать бесплатно
+                    Menu {
+                        if right.resellable {
+                            Button {
+                                isListing = true
+                            } label: {
+                                Label("Выставить на продажу…", systemImage: "rublesign")
+                            }
+                        }
+                        Button {
+                            Task { await onList("") }
+                        } label: {
+                            Label("Передать даром", systemImage: "gift")
+                        }
                     } label: {
-                        Label("Передать / продать", systemImage: "arrow.triangle.2.circlepath")
+                        Label("Передать место", systemImage: "arrow.triangle.2.circlepath")
                             .font(.subheadline)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
             NavigationLink {

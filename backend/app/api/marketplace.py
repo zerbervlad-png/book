@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_optional_user
 from app.core.database import get_db
+from app.engines import transfer as transfer_engine
 from app.engines.availability import compute_resource_availability
 from app.models import Event, Listing, Resource, ResourceType
 from app.schemas import (
-    AvailabilityOut, EventOut, MarketplaceItemOut, ResourceOut, ListingOut,
+    AvailabilityOut, EventOut, MarketplaceItemOut, PurchaseQuoteOut, ResourceOut,
+    ListingOut,
 )
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
@@ -80,11 +82,16 @@ def listings(q: str | None = None, resource_type: str | None = None,
             continue
         if resource_type and right.resource.type.value != resource_type:
             continue
+        try:
+            quote = PurchaseQuoteOut(**transfer_engine.quote_listing(db, listing))
+        except transfer_engine.TransferError:
+            continue
         items.append(MarketplaceItemOut(
             kind="LISTING",
             event=EventOut.model_validate(event),
             resource=ResourceOut.model_validate(right.resource),
             listing=ListingOut.model_validate(listing),
+            quote=quote,
             availability=compute_resource_availability(db, right.resource),
         ))
     return items

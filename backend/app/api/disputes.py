@@ -51,7 +51,11 @@ def resolve(dispute_id: int, action: str, notes: str = "",
     if action == "refund" and dispute.transfer_id:
         payment = db.scalar(select(Payment).where(Payment.transfer_id == dispute.transfer_id))
         if payment:
-            payment_engine.refund(db, payment)
+            try:
+                payment_engine.refund(db, payment)
+            except payment_engine.PaymentError as e:
+                raise HTTPException(e.status_code, detail={
+                    "code": e.code, "message": f"Refund not possible: {e.message}"})
         dispute.status = DisputeStatus.RESOLVED_REFUNDED
     elif action == "reject":
         dispute.status = DisputeStatus.RESOLVED_REJECTED

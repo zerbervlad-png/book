@@ -11,8 +11,8 @@ from app.core.database import get_db
 from app.engines import fraud, transfer as transfer_engine
 from app.models import Listing, Resource, Transfer, User
 from app.schemas import (
-    ListingCreate, ListingOut, PaymentCreate, PaymentOut, TransferCreate,
-    TransferGiftCreate, TransferOut,
+    ListingCreate, ListingOut, PaymentCreate, PaymentOut, PurchaseQuoteOut,
+    TransferCreate, TransferGiftCreate, TransferOut,
 )
 
 router = APIRouter(prefix="/transfers", tags=["transfers"])
@@ -57,6 +57,16 @@ def cancel_listing(listing_id: int, db: Session = Depends(get_db),
     db.commit()
     db.refresh(listing)
     return listing
+
+
+@router.get("/listings/{listing_id}/quote", response_model=PurchaseQuoteOut)
+def listing_quote(listing_id: int, db: Session = Depends(get_db),
+                  user: User = Depends(get_current_user)):
+    """Cost preview: price, commission and payout BEFORE the buyer confirms (TZ 3, 9)."""
+    listing = db.get(Listing, listing_id)
+    if not listing or not listing.is_active:
+        raise HTTPException(404, detail={"code": "NOT_FOUND", "message": "Listing not found"})
+    return PurchaseQuoteOut(**transfer_engine.quote_listing(db, listing))
 
 
 @router.post("/buy", response_model=TransferOut, status_code=201)

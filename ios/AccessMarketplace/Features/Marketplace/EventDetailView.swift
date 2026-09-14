@@ -83,6 +83,7 @@ struct EmptyBody: Codable {}
 struct EventDetailView: View {
     @StateObject private var model: EventDetailViewModel
     @EnvironmentObject var appModel: AppModel
+    @State private var showReport = false
     let item: MarketplaceItemDTO
 
     init(item: MarketplaceItemDTO) {
@@ -109,6 +110,15 @@ struct EventDetailView: View {
                     Label("Способы получить доступ", systemImage: "key.horizontal")
                 }
             }
+            Section {
+                Button {
+                    showReport = true
+                } label: {
+                    Label("Пожаловаться на очередь", systemImage: "exclamationmark.bubble")
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                }
+            }
             if let message = model.joinedMessage {
                 Section {
                     Label(message, systemImage: "checkmark.circle.fill")
@@ -126,6 +136,9 @@ struct EventDetailView: View {
         .navigationTitle(model.event.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(); await appModel.reload() }
+        .sheet(isPresented: $showReport) {
+            ReportEventView(eventId: model.event.id)
+        }
     }
 
     private var header: some View {
@@ -235,5 +248,88 @@ extension EventDTO {
         .init(id: 0, title: "", description: "", startsAt: nil, city: nil, address: nil,
               category: "OTHER", status: "DRAFT", verificationStatus: "UNVERIFIED",
               capacity: nil, organizer: nil)
+    }
+}
+
+// MARK: - Жалоба на некорректную очередь (ТЗ, раздел 6)
+
+struct ReportEventView: View {
+    let eventId: Int
+    @Environment(\.dismiss) private var dismiss
+    @State private var reason = "FAKE_OBJECT"
+    @State private var description = ""
+    @State private var isSending = false
+    @State private var result: String?
+    @State private var error: String?
+
+    private static let reasons: [(id: String, title: String)] = [
+        ("FAKE_OBJECT", "Объект не существует"),
+        ("DUPLICATE", "Дубликат другой очереди"),
+        ("WRONG_ADDRESS", "Неверный адрес"),
+        ("CLOSED", "Объект закрыт / очередь неактуальна"),
+        ("SPAM", "Спам или мошенничество"),
+        ("OTHER", "Другое"),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Причина", selection: $reason) {
+                        ForEach(Self.reasons, id: \.id) { Text($0.title).tag($0.id) }
+                    }
+                    TextField("Комментарий (необязательно)", text: $description, axis: .vertical)
+                        .lineLimit(2...4)
+                } footer: {
+                    Text("Жалоба отправляется модерации. Подтверждённые фейковые " +
+                         "и дублирующиеся очереди удаляются.")
+                }
+                if let result {
+                    Section {
+                        Label(result, systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Button("Готово") { dismiss() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                if isSending {
+                    Section { HStack { Spacer(); ProgressView(); Spacer() } }
+                }
+                if let error {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Жалоба")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Отправить") { Task { await send() } }
+                        .disabled(isSending || result != nil)
+                }
+            }
+        }
+    }
+
+    private func send() async {
+        isSending = true
+        defer { isSending = false }
+        struct ReportResponse: Codable { let id: Int }
+        do {
+            let _: ReportResponse = try await APIClient.shared.request(
+                "POST", "events/\(eventId)/report",
+                body: ["reason": AnyEncodable(reason),
+                       "description": AnyEncodable(description)],
+                as: ReportResponse.self)
+            result = "Жалоба отправлена — спасибо"
+            error = nil
+        } catch let APIError.server(code, _, _) where code == "ALREADY_REPORTED" {
+            error = "Вы уже отправляли жалобу на эту очередь"
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось отправить жалобу"
+        }
     }
 }

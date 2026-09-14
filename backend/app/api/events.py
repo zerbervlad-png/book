@@ -16,11 +16,12 @@ from app.engines import verification as verification_engine
 from app.engines.availability import compute_event_inventory
 from app.engines.audit import audit
 from app.models import (
-    AuditEventType, Event, EventSource, EventStatus, EventVerification as VerificationRecord,
-    Organizer, Resource, User,
+    AuditEventType, Event, EventReport, EventSource, EventStatus,
+    EventVerification as VerificationRecord, Organizer, Resource, User,
 )
 from app.schemas import (
-    EventCreate, EventInventoryOut, EventOut, EventVerificationOut, ResourceOut,
+    EventCreate, EventInventoryOut, EventOut, EventReportCreate, EventReportOut,
+    EventVerificationOut, ResourceOut,
 )
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -32,6 +33,10 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db),
     starts_at = payload.starts_at
     if starts_at.tzinfo is None:
         starts_at = starts_at.replace(tzinfo=timezone.utc)  # 36: timezone handling
+    else:
+        # normalize tz-aware input to UTC — SQLite silently drops the offset,
+        # so a local wall-clock time would be stored as if it were UTC
+        starts_at = starts_at.astimezone(timezone.utc)
 
     organizer = db.scalar(select(Organizer).where(Organizer.user_id == user.id))
     if user.role.value == "ORGANIZER" and organizer:
@@ -118,6 +123,16 @@ def search_events(
     return db.scalars(stmt).all()
 
 
+@router.get("/reports/open", response_model=list[EventReportOut])
+def open_reports(db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    """Moderation queue of complaints about user-created queues (admin only)."""
+    if user.role.value != "ADMIN":
+        raise HTTPException(403, "Only admin can view reports")
+    return db.scalars(select(EventReport).where(
+        EventReport.status == "OPEN").order_by(EventReport.created_at)).all()
+
+
 @router.get("/{event_id}", response_model=EventOut)
 def get_event(event_id: int, db: Session = Depends(get_db)):
     event = db.get(Event, event_id)
@@ -180,3 +195,43 @@ def cancel_event(event_id: int, db: Session = Depends(get_db),
     db.commit()
     db.refresh(event)
     return event
+
+
+VALID_REPORT_REASONS = {
+    "FAKE_OBJECT", "DUPLICATE", "WRONG_ADDRESS", "CLOSED", "SPAM", "OTHER",
+}
+
+
+@router.post("/{event_id}/report", response_model=EventReportOut, status_code=201)
+def report_event(event_id: int, payload: EventReportCreate, db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    """Complaint about a fake/duplicate/incorrect queue — TZ section 6."""
+    event = db.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Event not found")
+    if event.created_by_user_id == user.id:
+        raise HTTPException(400, detail={
+            "code": "OWN_EVENT", "message": "Cannot report your own queue"})
+    if payload.reason not in VALID_REPORT_REASONS:
+        raise HTTPException(400, detail={
+            "code": "INVALID_REASON",
+            "message": f"Allowed: {sorted(VALID_REPORT_REASONS)}"})
+    from sqlalchemy.exc import IntegrityError
+    report = EventReport(
+        event_id=event_id,
+        reporter_user_id=user.id,
+        reason=payload.reason,
+        description=payload.description,
+    )
+    db.add(report)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, detail={
+            "code": "ALREADY_REPORTED", "message": "You already reported this queue"})
+    audit(db, AuditEventType.EVENT_REPORTED, "Event", event_id,
+          actor_user_id=user.id, reason=payload.reason, report_id=report.id)
+    db.commit()
+    db.refresh(report)
+    return report

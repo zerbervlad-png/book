@@ -49,6 +49,9 @@ def me(user: User = Depends(get_current_user)):
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: Session = Depends(get_db),
              user: User = Depends(get_current_user)):
+    # users' emails must not be enumerable by arbitrary clients
+    if user.id != user_id and user.role.value != "ADMIN":
+        raise HTTPException(403, "You can only view your own profile")
     target = db.get(User, user_id)
     if not target:
         raise HTTPException(404, "User not found")

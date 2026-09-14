@@ -34,7 +34,12 @@ def _balance(db: Session, user_id: int) -> UserBalance:
 
 def compute_fee(amount: int, fee_percent: float | None) -> int:
     percent = settings.DEFAULT_PLATFORM_FEE_PERCENT if fee_percent is None else fee_percent
-    return int(amount * percent / 100.0)
+    # exact decimal math — float arithmetic produces off-by-one fees
+    # (e.g. 1450 * 5.7 / 100.0 == 82.64999...), and the fee is always
+    # rounded toward the payer's protection (down)
+    from decimal import Decimal, ROUND_FLOOR
+    fee = (Decimal(amount) * Decimal(str(percent)) / Decimal(100))
+    return int(fee.quantize(Decimal("1"), rounding=ROUND_FLOOR))
 
 
 def authorize(
@@ -111,7 +116,9 @@ def refund(db: Session, payment: Payment) -> Payment:
 
     payer_balance = _balance(db, payment.payer_user_id)
     payer_balance.available += payment.amount
-    payer_balance.escrow = max(payer_balance.escrow - payment.amount, 0)
+    # the payer's escrow was already released at capture time — refunding must
+    # not touch it again (a second decrement would eat into escrow held for
+    # the payer's other in-flight payments)
     if payment.payee_user_id is not None:
         payee_balance = _balance(db, payment.payee_user_id)
         payee_balance.available -= payment.amount - payment.fee_amount

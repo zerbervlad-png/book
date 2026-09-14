@@ -179,6 +179,8 @@ class AccessRight(Base):
     __table_args__ = (
         Index("ix_access_rights_resource_owner", "resource_id", "owner_user_id"),
         Index("ix_access_rights_token", "token_code"),
+        # a queue position number is unique per queue even under concurrent joins
+        Index("uq_access_right_queue_position", "queue_id", "position", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -224,6 +226,8 @@ class WaitlistEntry(Base):
         Index("uq_waitlist_entry_live", "waitlist_id", "user_id", unique=True,
               sqlite_where=text("status IN ('WAITING','OFFERED')"),
               postgresql_where=text("status IN ('WAITING','OFFERED')")),
+        # waitlist position numbers are unique per waitlist (race-safe)
+        Index("uq_waitlist_entry_position", "waitlist_id", "position", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -297,6 +301,8 @@ class Transfer(Base):
                 "status IN ('INITIATED','AWAITING_PAYMENT','AWAITING_BUYER_CLAIM',"
                 "'VERIFYING','TOKEN_LOCKED')"),
         ),
+        # an idempotency key must map to exactly one transfer (section 61)
+        Index("uq_transfer_idempotency_key", "idempotency_key", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -383,6 +389,26 @@ class Dispute(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[DisputeStatus] = mapped_column(Enum(DisputeStatus), default=DisputeStatus.OPEN)
     resolution_notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EventReport(Base):
+    """User complaint about a fake/duplicate/incorrect queue or event (TZ section 6:
+    возможность пожаловаться на некорректную очередь)."""
+    __tablename__ = "event_reports"
+    __table_args__ = (
+        # one OPEN report per user per event — repeated reports must not spam
+        Index("uq_event_report_open", "event_id", "reporter_user_id", unique=True,
+              sqlite_where=text("status = 'OPEN'"), postgresql_where=text("status = 'OPEN'")),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
+    reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    reason: Mapped[str] = mapped_column(String(64))
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), default="OPEN")  # OPEN/REVIEWED/DISMISSED
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

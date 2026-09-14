@@ -24,22 +24,30 @@ from app.models import User, UserRole
 
 app = FastAPI(title=settings.APP_NAME, version="1.0.0")
 
+_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production deployment
-    allow_credentials=True,
+    allow_origins=_origins,
+    # credentials cannot be combined with the wildcard origin "*" (CORS spec)
+    allow_credentials="*" not in _origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ---------- rate limiting (60) ----------
 RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+RATE_BUCKET_LIMIT = 10_000
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     client = request.client.host if request.client else "anon"
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        # evict idle buckets so the map cannot grow without bound
+        if len(RATE_BUCKETS) > RATE_BUCKET_LIMIT:
+            now = time.monotonic()
+            for ip in [ip for ip, b in RATE_BUCKETS.items() if not b or now - b[-1] > 60]:
+                RATE_BUCKETS.pop(ip, None)
         now = time.monotonic()
         bucket = RATE_BUCKETS[client]
         while bucket and now - bucket[0] > 60:
@@ -83,13 +91,20 @@ for router in (auth.router, organizers.router, events.router, resources.router,
 
 
 def _bootstrap_admin() -> None:
-    # Bootstrap admin account if none exists (change the password in production!)
+    # Bootstrap admin account if none exists. Credentials come from the
+    # AM_ADMIN_EMAIL / AM_ADMIN_PASSWORD env vars — always override the
+    # insecure development defaults in production.
+    import logging
+    if settings.ADMIN_PASSWORD == "ChangeMe-Admin-2026!":
+        logging.getLogger(__name__).warning(
+            "Admin account uses the default development password — "
+            "set AM_ADMIN_PASSWORD before deploying.")
     with SessionLocal() as db:
         if not db.scalar(select(User).where(User.role == UserRole.ADMIN)):
             db.add(User(
-                email="admin@access.marketplace",
+                email=settings.ADMIN_EMAIL,
                 name="Platform Admin",
-                password_hash=hash_password("ChangeMe-Admin-2026!"),
+                password_hash=hash_password(settings.ADMIN_PASSWORD),
                 role=UserRole.ADMIN,
             ))
             db.commit()

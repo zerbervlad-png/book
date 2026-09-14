@@ -105,6 +105,23 @@ class EventVerificationOut(ORMModel):
     checked_at: datetime
 
 
+class EventReportCreate(BaseModel):
+    """Complaint about an incorrect/fake/duplicate queue (TZ section 6)."""
+    reason: str  # FAKE_OBJECT | DUPLICATE | WRONG_ADDRESS | CLOSED | SPAM | OTHER
+    description: str = ""
+
+
+class EventReportOut(ORMModel):
+    id: int
+    event_id: int
+    reporter_user_id: int
+    reason: str
+    description: str
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+
 # ---------- Resources ----------
 
 class ResourceCreate(BaseModel):
@@ -263,6 +280,21 @@ class ListingOut(ORMModel):
     created_at: datetime
 
 
+class PurchaseQuoteOut(BaseModel):
+    """Cost preview for the buyer BEFORE confirming a purchase (TZ sections 3, 9:
+    покупатель видит цену и комиссию до оплаты). The fee is withheld from the
+    seller's amount, so the buyer pays exactly the listed price."""
+    listing_id: int
+    kind: str
+    price: int | None
+    currency: str
+    fee_percent: float
+    fee_amount: int          # commission withheld by the service
+    seller_payout: int | None  # what the seller receives (price − fee)
+    buyer_total: int | None    # what the buyer pays (= price, fee from seller)
+    deal_window_seconds: int   # time the buyer has to complete the deal
+
+
 class TransferCreate(BaseModel):
     """Direct transfer (resale) from a listing."""
     listing_id: int
@@ -373,6 +405,7 @@ class MarketplaceItemOut(BaseModel):
     resource: ResourceOut | None = None
     listing: ListingOut | None = None
     availability: AvailabilityOut | None = None
+    quote: PurchaseQuoteOut | None = None  # commission preview for listings
 
 
 class AuditEventOut(ORMModel):

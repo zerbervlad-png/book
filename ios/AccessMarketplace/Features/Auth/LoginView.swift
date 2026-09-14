@@ -31,8 +31,10 @@ struct LoginView: View {
                         // логотип
                         VStack(spacing: 8) {
                             Image(systemName: "qrcode.circle.fill")
-                                .font(.system(size: 72))
+                                .font(.largeTitle)
+                                .imageScale(.large)
                                 .foregroundStyle(.white)
+                                .accessibilityHidden(true)
                             Text("Маркет доступа")
                                 .font(.title2.bold())
                                 .foregroundStyle(.white)
@@ -110,10 +112,13 @@ struct LoginView: View {
                                 .foregroundStyle(.white)
                                 .padding(12)
                                 .background(RoundedRectangle(cornerRadius: 12)
-                                    .fill(.red.opacity(0.35)))
+                                    .fill(.red.opacity(0.85)))
                         }
 
-                        // тестовый аккаунт
+                        #if DEBUG
+                        // тестовый аккаунт — только в дебаг-сборках:
+                        // публикация живых кредов в релизе нарушает App Review
+                        // Guideline 2.3.1
                         VStack(spacing: 4) {
                             Text("Тестовый аккаунт")
                                 .font(.caption.bold())
@@ -135,6 +140,7 @@ struct LoginView: View {
                             .padding(.top, 4)
                         }
                         .padding(.bottom, 24)
+                        #endif
                     }
                     .padding(.horizontal, 20)
                 }

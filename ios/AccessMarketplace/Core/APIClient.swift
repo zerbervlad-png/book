@@ -50,7 +50,9 @@ struct APIEnvelope: Decodable {
 final class APIClient {
     static let shared = APIClient()
 
-    var baseURL = URL(string: ServerConfig.apiBaseURL)!
+    private static let fallbackBaseURL = URL(string: "http://localhost:8000/api")!
+    // never crash on a malformed ServerConfig value (setup.sh rewrites the file)
+    var baseURL: URL = URL(string: ServerConfig.apiBaseURL) ?? APIClient.fallbackBaseURL
     var token: String?
 
     private let decoder: JSONDecoder = {
@@ -67,6 +69,7 @@ final class APIClient {
 
     /// Builds a URL from a path that may contain a query string.
     /// `appendingPathComponent` percent-encodes "?" which breaks queries.
+    /// Values must arrive already percent-encoded (use `encodeQueryValue`).
     private func makeURL(_ path: String) -> URL? {
         let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
@@ -78,6 +81,14 @@ final class APIClient {
             comps.percentEncodedQuery = parts[1]
         }
         return comps.url
+    }
+
+    /// Percent-encodes a query value so `&`, `=`, `+` and spaces cannot
+    /// corrupt the query string (`.urlQueryAllowed` leaves them raw).
+    static func encodeQueryValue(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        for c in "&=+?#" { allowed.remove(Unicode.Scalar(String(c))!) }
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     func request<Body: Encodable, T: Decodable>(
@@ -105,7 +116,21 @@ final class APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw APIError.network(error)
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidURL }
+        guard (200..<300).contains(http.statusCode) else {
+            // previously 401/500 bodies were handed to UIImage silently
+            let env = try? decoder.decode(APIEnvelope.self, from: data)
+            throw APIError.server(code: env?.code ?? "ERROR",
+                                  message: env?.message ?? "Ошибка запроса",
+                                  status: http.statusCode)
+        }
         return data
     }
 
