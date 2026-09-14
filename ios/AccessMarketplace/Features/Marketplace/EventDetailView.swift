@@ -326,10 +326,12 @@ struct ReportEventView: View {
                 as: ReportResponse.self)
             result = "Жалоба отправлена — спасибо"
             error = nil
-        } catch let APIError.server(code, _, _) where code == "ALREADY_REPORTED" {
-            error = "Вы уже отправляли жалобу на эту очередь"
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось отправить жалобу"
+            if case let APIError.server(code, _, _) = error, code == "ALREADY_REPORTED" {
+                self.error = "Вы уже отправляли жалобу на эту очередь"
+            } else {
+                self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось отправить жалобу"
+            }
         }
     }
 }

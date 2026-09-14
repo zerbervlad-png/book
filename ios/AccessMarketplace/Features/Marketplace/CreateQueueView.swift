@@ -4,7 +4,7 @@
 // дубликаты отклоняются (canonical key).
 import SwiftUI
 
-struct QueueCategory: Identifiable, CaseIterable {
+struct QueueCategory: Identifiable {
     let id: String
     let title: String
     let icon: String
@@ -90,10 +90,12 @@ final class CreateQueueViewModel: ObservableObject {
             createdMessage = "Очередь создана и отправлена на проверку. " +
                 "Другие пользователи уже могут её найти и занять место."
             error = nil
-        } catch let APIError.server(code, _, _) where code == "DUPLICATE_EVENT" {
-            error = "Такая очередь уже существует — найдите её через поиск"
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось создать очередь"
+            if case let APIError.server(code, _, _) = error, code == "DUPLICATE_EVENT" {
+                self.error = "Такая очередь уже существует — найдите её через поиск"
+            } else {
+                self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось создать очередь"
+            }
         }
     }
 }
