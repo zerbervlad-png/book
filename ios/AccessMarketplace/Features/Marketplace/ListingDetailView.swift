@@ -58,12 +58,14 @@ final class ListingDetailViewModel: ObservableObject {
             resultMessage = "Место передано вам. Новый токен доступа — в разделе «Мой доступ»."
             error = nil
             await appModel.reload()
-        } catch let APIError.server(code, message, _) where code == "RIGHT_NOT_TRANSFERABLE"
-                                                        || code == "ALREADY_LISTED"
-                                                        || code == "INVALID_STATE":
-            error = "Место уже купил другой пользователь или сделка была отменена"
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось завершить сделку"
+            if case let APIError.server(code, _, _) = error,
+               code == "RIGHT_NOT_TRANSFERABLE" || code == "ALREADY_LISTED"
+                   || code == "INVALID_STATE" || code == "TRANSFER_EXPIRED" {
+                self.error = "Место уже купил другой пользователь или сделка была отменена"
+            } else {
+                self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось завершить сделку"
+            }
         }
     }
 }
@@ -138,7 +140,7 @@ struct ListingDetailView: View {
                         }
                     }
                     LabeledContent {
-                        Text("\(quote.buyTotal ?? price) ₽").font(.title3.bold()).foregroundStyle(.tint)
+                        Text("\(quote.buyerTotal ?? price) ₽").font(.title3.bold()).foregroundStyle(.tint)
                     } label: {
                         Text("К оплате")
                     }

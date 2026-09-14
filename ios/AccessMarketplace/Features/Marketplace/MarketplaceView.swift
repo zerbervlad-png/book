@@ -179,7 +179,7 @@ struct ListingRow: View {
                     Text("\(price) ₽")
                         .font(.title3.bold())
                     if quote.feeAmount > 0 {
-                        Text("к оплате \(quote.buyTotal ?? price) ₽ · комиссия \(quote.feeAmount) ₽")
+                        Text("к оплате \(quote.buyerTotal ?? price) ₽ · комиссия \(quote.feeAmount) ₽")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
