@@ -330,6 +330,27 @@ class PaymentCreate(BaseModel):
     idempotency_key: str
 
 
+class TopUpCreate(BaseModel):
+    amount: int
+
+
+class BalanceOut(BaseModel):
+    available: int
+    escrow: int
+
+
+class DealMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class DealMessageOut(ORMModel):
+    id: int
+    transfer_id: int
+    sender_user_id: int
+    body: str
+    created_at: datetime
+
+
 class PaymentOut(ORMModel):
     id: int
     transfer_id: int | None

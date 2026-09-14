@@ -8,11 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.engines import audit as audit_engine
 from app.engines import fraud, transfer as transfer_engine
-from app.models import Listing, Resource, Transfer, User
+from app.engines.notify import notify
+from app.models import DealMessage, Listing, Resource, Transfer, User
+from app.models import AuditEventType
 from app.schemas import (
-    ListingCreate, ListingOut, PaymentCreate, PaymentOut, PurchaseQuoteOut,
-    TransferCreate, TransferGiftCreate, TransferOut,
+    DealMessageCreate, DealMessageOut, ListingCreate, ListingOut, PaymentCreate,
+    PaymentOut, PurchaseQuoteOut, TransferCreate, TransferGiftCreate, TransferOut,
 )
 
 router = APIRouter(prefix="/transfers", tags=["transfers"])
@@ -148,3 +151,53 @@ def my_transfers(db: Session = Depends(get_db), user: User = Depends(get_current
     return db.scalars(select(Transfer).where(
         (Transfer.from_user_id == user.id) | (Transfer.to_user_id == user.id)
     ).order_by(Transfer.created_at.desc())).all()
+
+
+# ---------- deal chat (buyer ↔ seller agree where/when to meet) ----------
+
+def _chat_transfer_or_403(db: Session, transfer_id: int, user: User) -> Transfer:
+    transfer = db.get(Transfer, transfer_id)
+    if not transfer:
+        raise HTTPException(404, detail={"code": "NOT_FOUND", "message": "Transfer not found"})
+    if user.id not in (transfer.from_user_id, transfer.to_user_id) \
+            and user.role.value != "ADMIN":
+        raise HTTPException(403, detail={"code": "NOT_PARTICIPANT",
+                                         "message": "Only the deal participants can use this chat"})
+    return transfer
+
+
+@router.get("/{transfer_id}/messages", response_model=list[DealMessageOut])
+def get_messages(transfer_id: int, after_id: int = 0,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _chat_transfer_or_403(db, transfer_id, user)
+    stmt = select(DealMessage).where(
+        DealMessage.transfer_id == transfer_id, DealMessage.id > after_id
+    ).order_by(DealMessage.id)
+    return db.scalars(stmt).all()
+
+
+@router.post("/{transfer_id}/messages", response_model=DealMessageOut, status_code=201)
+def send_message(transfer_id: int, payload: DealMessageCreate,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    transfer = _chat_transfer_or_403(db, transfer_id, user)
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(422, detail={"code": "EMPTY_MESSAGE",
+                                        "message": "Message must not be empty"})
+    message = DealMessage(
+        transfer_id=transfer_id,
+        sender_user_id=user.id,
+        body=body,
+    )
+    db.add(message)
+    db.flush()
+    # push a notification so the counterpart sees the message
+    counterpart_id = transfer.to_user_id if user.id == transfer.from_user_id \
+        else transfer.from_user_id
+    notify(db, counterpart_id, "DEAL_MESSAGE",
+           "Новое сообщение по сделке", payload.body[:120], transfer_id=transfer_id)
+    audit_engine.audit(db, AuditEventType.DEAL_MESSAGE_SENT, "DealMessage", message.id,
+                       actor_user_id=user.id, transfer_id=transfer_id)
+    db.commit()
+    db.refresh(message)
+    return message

@@ -14,6 +14,10 @@ class Settings:
     ADMIN_PASSWORD: str = os.environ.get("AM_ADMIN_PASSWORD", "ChangeMe-Admin-2026!")
     # Comma-separated list of allowed CORS origins; "*" disables credentials
     CORS_ORIGINS: str = os.environ.get("AM_CORS_ORIGINS", "*")
+    # Demo mode: auto-top-up the buyer's wallet when a payment is short of
+    # funds (no real PSP attached yet). Set AM_WALLET_AUTO_TOPUP=0 in prod —
+    # then payments fail with INSUFFICIENT_FUNDS until the user tops up.
+    WALLET_AUTO_TOPUP: bool = os.environ.get("AM_WALLET_AUTO_TOPUP", "1") not in ("0", "false", "no")
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_TTL_SECONDS: int = int(os.environ.get("AM_TOKEN_TTL", str(12 * 3600)))
     RESERVATION_TTL_SECONDS: int = int(os.environ.get("AM_RESERVATION_TTL", str(15 * 60)))

@@ -321,3 +321,35 @@ extension ReservationDTO {
         paymentStatus = (try? c.decode(String.self, forKey: AnyKey("payment_status"))) ?? "NONE"
     }
 }
+
+struct DealMessageDTO: Codable, Identifiable {
+    let id: Int
+    let transferId: Int
+    let senderUserId: Int
+    let body: String
+    let createdAt: Date?
+}
+
+extension DealMessageDTO {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        id = try c.decode(Int.self, forKey: AnyKey("id"))
+        transferId = (try? c.decode(Int.self, forKey: AnyKey("transfer_id"))) ?? 0
+        senderUserId = (try? c.decode(Int.self, forKey: AnyKey("sender_user_id"))) ?? 0
+        body = (try? c.decode(String.self, forKey: AnyKey("body"))) ?? ""
+        createdAt = try? c.decode(Date.self, forKey: AnyKey("created_at"))
+    }
+}
+
+struct WalletBalanceDTO: Codable {
+    let available: Int
+    let escrow: Int
+}
+
+extension WalletBalanceDTO {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        available = (try? c.decode(Int.self, forKey: AnyKey("available"))) ?? 0
+        escrow = (try? c.decode(Int.self, forKey: AnyKey("escrow"))) ?? 0
+    }
+}

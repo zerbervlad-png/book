@@ -47,12 +47,19 @@ struct MyAccessView: View {
                 if !appModel.myTransfers.isEmpty {
                     Section {
                         ForEach(appModel.myTransfers) { transfer in
-                            TransferHistoryRow(transfer: transfer, myUserId: auth.user?.id ?? 0)
+                            NavigationLink {
+                                DealChatView(transferId: transfer.id,
+                                             myUserId: auth.user?.id ?? 0)
+                            } label: {
+                                TransferHistoryRow(transfer: transfer,
+                                                   myUserId: auth.user?.id ?? 0)
+                            }
                         }
                     } header: {
                         Label("История сделок", systemImage: "clock.arrow.circlepath")
                     } footer: {
-                        Text("Все операции сохраняются в неизменяемом журнале на сервере.")
+                        Text("Нажмите на сделку, чтобы открыть чат с участником: "
+                             + "договориться, куда подойти и как передать место.")
                     }
                 }
                 if let syncError = appModel.syncError {

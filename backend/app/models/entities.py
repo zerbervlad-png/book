@@ -474,3 +474,16 @@ class Notification(Base):
     data: Mapped[dict] = mapped_column(JSON, default=dict)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DealMessage(Base):
+    """Buyer↔seller chat on a completed/in-flight deal: the two parties agree
+    where and when to meet so the buyer can take the queue spot (unofficial
+    transfers). Only the transfer participants can read/write."""
+    __tablename__ = "deal_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(ForeignKey("transfers.id"), index=True)
+    sender_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

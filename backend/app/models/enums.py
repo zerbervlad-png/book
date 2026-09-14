@@ -171,3 +171,5 @@ class AuditEventType(str, enum.Enum):  # 32
     DISPUTE_OPENED = "DisputeOpened"
     FRAUD_FLAGGED = "FraudFlagged"
     ACCESS_RIGHT_CANCELLED = "AccessRightCancelled"
+    WALLET_TOPUP = "WalletTopUp"
+    DEAL_MESSAGE_SENT = "DealMessageSent"

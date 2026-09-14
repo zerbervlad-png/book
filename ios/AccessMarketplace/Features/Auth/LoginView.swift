@@ -160,10 +160,59 @@ struct LoginView: View {
 
 struct ProfileView: View {
     @EnvironmentObject var auth: AuthManager
+    @State private var balance: WalletBalanceDTO?
+    @State private var topupError: String?
+    @State private var isToppingUp = false
 
     var body: some View {
         NavigationStack {
             List {
+                Section("Кошелёк") {
+                    HStack {
+                        Label("Баланс", systemImage: "creditcard")
+                        Spacer()
+                        if let balance {
+                            Text("\(balance.available) ₽")
+                                .font(.title3.bold().monospacedDigit())
+                        } else {
+                            ProgressView()
+                        }
+                    }
+                    if let balance, balance.escrow > 0 {
+                        LabeledContent("В удержании по сделкам",
+                                       value: "\(balance.escrow) ₽")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Picker("Пополнить на", selection: $topupAmount) {
+                        ForEach([500, 1000, 5000], id: \.self) { Text("\($0) ₽").tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    Button {
+                        Task { await topup() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isToppingUp {
+                                ProgressView()
+                            } else {
+                                Label("Пополнить (демо)", systemImage: "plus.circle.fill")
+                                    .bold()
+                            }
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isToppingUp)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    if let topupError {
+                        Label(topupError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote).foregroundStyle(.red)
+                    }
+                    Text("Кошелёк используется для покупки мест. Оплата удерживается "
+                         + "в escrow до подтверждения передачи.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 if let user = auth.user {
                     Section {
                         HStack(spacing: 16) {
@@ -199,7 +248,34 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Профиль")
-            .task { await auth.loadMe() }
+            .task {
+                await auth.loadMe()
+                await loadBalance()
+            }
+        }
+    }
+
+    @State private var topupAmount = 1000
+
+    private func loadBalance() async {
+        if let dto: WalletBalanceDTO = try? await APIClient.shared.request(
+            "GET", "payments/balance", as: WalletBalanceDTO.self) {
+            balance = dto
+        }
+    }
+
+    private func topup() async {
+        isToppingUp = true
+        defer { isToppingUp = false }
+        do {
+            let dto: WalletBalanceDTO = try await APIClient.shared.request(
+                "POST", "payments/topup",
+                body: ["amount": AnyEncodable(topupAmount)],
+                as: WalletBalanceDTO.self)
+            balance = dto
+            topupError = nil
+        } catch {
+            topupError = (error as? LocalizedError)?.errorDescription ?? "Не удалось пополнить"
         }
     }
 

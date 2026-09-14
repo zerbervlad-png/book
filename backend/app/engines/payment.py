@@ -60,6 +60,16 @@ def authorize(
         return existing  # idempotent — section 61
 
     payer_balance = _balance(db, payer_user_id)
+    if payer_balance.available < amount:
+        # a payment must never silently drive the balance negative
+        if not settings.WALLET_AUTO_TOPUP:
+            raise PaymentError("INSUFFICIENT_FUNDS",
+                               "Not enough money in the wallet — top up first", 402)
+        # demo mode: instant mock top-up (a real PSP replaces this later)
+        topup_amount = max(amount - payer_balance.available, 10_000)
+        payer_balance.available += topup_amount
+        audit(db, AuditEventType.WALLET_TOPUP, "UserBalance", payer_user_id,
+              actor_user_id=payer_user_id, demo_topup=topup_amount)
     payer_balance.available -= amount       # debit payer
     payer_balance.escrow += amount         # hold in escrow
     if payee_user_id is not None:

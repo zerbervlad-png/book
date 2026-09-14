@@ -73,6 +73,12 @@ def main():
         client.post("/api/organizers", json={"name": "Прайм Промоушн"},
                     headers=auth(org_token))
 
+        # --- стартовый баланс демо-кошелька (демо-режим оплаты) ---
+        client.post("/api/payments/topup", json={"amount": 10000},
+                    headers=auth(demo_token))
+        client.post("/api/payments/topup", json={"amount": 10000},
+                    headers=auth(org_token))
+
         # --- Событие 1: рок-фестиваль (объект, вокруг которого существует очередь;
         #     приложение НЕ продаёт билеты на фестиваль — ТЗ, раздел 8) ---
         fest = make_event(client, org_token, title="Рок-фестиваль «Волга Fest»",
