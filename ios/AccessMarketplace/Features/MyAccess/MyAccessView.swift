@@ -74,6 +74,17 @@ struct MyAccessView: View {
         }
     }
 
+    private func reservationTitle(_ status: String) -> String {
+        switch status {
+        case "CREATED": return "Создана"
+        case "HELD": return "Держится"
+        case "CONFIRMED": return "Подтверждена"
+        case "EXPIRED": return "Истекла"
+        case "CANCELLED": return "Отменена"
+        default: return status
+        }
+    }
+
     private func listForSale(_ right: AccessRightDTO, price: String) async {
         let trimmed = price.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty, Int(trimmed) == nil {
