@@ -87,10 +87,17 @@ def confirm_reservation(db: Session, user_id: int, reservation_id: int) -> Reser
         raise ReservationError("INVALID_STATE",
                                f"Reservation is {reservation.status.value}", 409)
     # a paid reservation cannot be confirmed without a captured payment —
-    # otherwise an AccessRight would be issued with money never taken
-    if reservation.amount > 0 and reservation.payment_status != "CAPTURED":
-        raise ReservationError("PAYMENT_REQUIRED",
-                               "Reservation must be paid before confirmation", 409)
+    # otherwise an AccessRight would be issued with money never taken.
+    # Re-query the payment instead of trusting the denormalized flag (a
+    # refunded payment must never confirm a reservation).
+    if reservation.amount > 0:
+        from app.models import Payment, PaymentStatus
+        captured = db.scalar(select(Payment).where(
+            Payment.reservation_id == reservation.id,
+            Payment.status == PaymentStatus.CAPTURED))
+        if captured is None:
+            raise ReservationError("PAYMENT_REQUIRED",
+                                   "Reservation must be paid before confirmation", 409)
 
     import secrets as _secrets
     from app.core.security import generate_token_code
@@ -139,11 +146,28 @@ def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> Reserv
         raise ReservationError("NOT_FOUND", "Reservation not found", 404)
     if reservation.status in (ReservationStatus.CONFIRMED, ReservationStatus.HELD,
                               ReservationStatus.CREATED):
+        right_already_used = False
+        if reservation.access_right_id:
+            right = db.get(AccessRight, reservation.access_right_id)
+            if right and right.status == AccessRightStatus.USED:
+                right_already_used = True
+            elif right and right.status in (AccessRightStatus.LISTED,
+                                            AccessRightStatus.TRANSFER_PENDING):
+                raise ReservationError(
+                    "INVALID_STATE",
+                    "Access right is listed or being transferred — cancel the "
+                    "listing/transfer first", 409)
+        if right_already_used:
+            raise ReservationError("INVALID_STATE",
+                                   "Reservation was already used and cannot be cancelled", 409)
         reservation.status = ReservationStatus.CANCELLED
         if reservation.access_right_id:
             right = db.get(AccessRight, reservation.access_right_id)
             if right and right.status not in (AccessRightStatus.USED,):
                 right.status = AccessRightStatus.CANCELLED
+        # refund a captured payment so the buyer never loses both the place
+        # and the money (sections 27, 28)
+        _refund_captured_payment(db, reservation)
         audit(db, AuditEventType.ACCESS_RIGHT_CANCELLED, "Reservation", reservation.id,
               actor_user_id=user_id)
         from app.engines import waitlist as waitlist_engine
@@ -151,3 +175,14 @@ def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> Reserv
         if resource is not None:
             waitlist_engine.on_capacity_freed(db, resource)
     return reservation
+
+
+def _refund_captured_payment(db: Session, reservation: Reservation) -> None:
+    from app.models import Payment, PaymentStatus
+    payment = db.scalar(select(Payment).where(
+        Payment.reservation_id == reservation.id,
+        Payment.status == PaymentStatus.CAPTURED))
+    if payment:
+        from app.engines import payment as payment_engine
+        payment_engine.refund(db, payment)
+        reservation.payment_status = "REFUNDED"

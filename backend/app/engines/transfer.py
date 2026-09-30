@@ -278,6 +278,12 @@ def complete_transfer(db: Session, transfer_id: int, payment_id: int | None) -> 
     if right.owner_user_id != transfer.from_user_id:
         raise TransferError("DOUBLE_SPEND",
                             "Access right already belongs to another user", 409)
+    # a cancelled/expired right must never be resurrected by a late payment
+    # or approval — the right must still be locked in this transfer
+    if right.status != AccessRightStatus.TRANSFER_PENDING:
+        raise TransferError("DOUBLE_SPEND",
+                            f"Access right is {right.status.value}, not locked "
+                            "in this transfer", 409)
 
     old_token = right.token_code
     # issue a NEW token to the new owner; old one is invalidated
@@ -323,6 +329,13 @@ def cancel_transfer(db: Session, user_id: int, transfer_id: int) -> Transfer:
     if right.status == AccessRightStatus.TRANSFER_PENDING and \
             right.owner_user_id == transfer.from_user_id:
         right.status = AccessRightStatus.OWNED
+    # deactivate the listing so a cancelled transfer never leaves a zombie
+    # active listing the seller cannot cancel (and buyers could still buy)
+    listing = db.scalar(select(Listing).where(
+        Listing.access_right_id == right.id, Listing.is_active.is_(True)))
+    if listing:
+        listing.is_active = False
+        listing.closed_at = utcnow()
     transfer.status = TransferStatus.CANCELLED
     # refund ALL captured payments so the buyer never loses money on a
     # cancelled/expired transfer (sections 27, 28)

@@ -33,7 +33,7 @@
 | 56–58. Политики передачи | `is_transferable`, `is_resellable`, `max_resale_price`, `fee_percent`, approval |
 | 59. Аналитика | `api/analytics.py` |
 | 60–61. Безопасность, идемпотентность | JWT, PBKDF2, rate limit, `IdempotencyRecord` + `idempotency_key` |
-| 62–65. Тесты | 20 тестов: E2E 1–5, негативные, GPS-кейсы, политики очередей |
+| 62–65. Тесты | 75 тестов: E2E 1–5, негативные, GPS-кейсы, политики очередей, кошелёк/сделки, фиксы аудита |
 | 67. Без mock | все критические операции — реальные server-side механизмы |
 | 68–70. Источники, дедупликация | `EventSource`, `canonical_key` |
 | 72–73. B2B, монетизация | роли organizer/admin, конфигурируемые комиссии |
@@ -56,7 +56,8 @@
 | 4. Статусы сделки | `TransferStatus` + `Listing.is_active` + `PaymentStatus`; TTL сделки `AM_TRANSFER_TTL`, ленивый sweep `sweep_expired` |
 | 5. Очереди создаются пользователями | `POST /events` (source=USER_REQUEST) + `POST /resources` (разрешено автору события) |
 | 6. Верификация и жалобы | `engines/verification.py` (canonical_key, дубликаты) + `EventReport` (`POST /events/{id}/report`, `GET /events/reports/open` для модерации) |
-| 8. Фестиваль — объект, не товар | seed: у фестиваля очередь+слоты, продажа билетов приложением убрана |
+| 8. Фестиваль — объект, не товар | seed: билеты на фестиваль не продаются; слоты фан-зоны — платные TIME_SLOT-ресурсы |
+| 7. Кошелёк и чат сделки | `UserBalance` (escrow ledger), `POST /payments/topup`, `GET /payments/balance`; демо-режим `AM_WALLET_AUTO_TOPUP` (в prod — `0`); чат покупатель↔продавец: `GET/POST /transfers/{id}/messages` (`DealMessage`), тесты `test_wallet_chat.py` |
 | 9. UX сделки | iOS: `ListingDetailView` (цена/комиссия/подтверждение/результат), `CreateQueueView`, `TransferHistoryRow`, меню «Передать место» (продажа/даром) |
 | 10. Защита от мошенничества | частичный уникальный индекс одного открытого Transfer на право, escrow, refund при отмене/истечении, `engines/fraud.py`, audit log |
 

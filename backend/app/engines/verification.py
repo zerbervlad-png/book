@@ -5,7 +5,6 @@ actual, place matches, organizer exists, official info available, not a
 duplicate, not fraudulent.
 """
 import hashlib
-from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -46,15 +45,23 @@ def run_verification(db: Session, event: Event, actor_user_id: int | None = None
     """Full heuristic verification pass. Writes an EventVerification record."""
     checks: list[tuple[str, bool, str]] = []
 
-    # 1. Organizer present (verification level of organizer handled below)
+    # 1. Organizer present (verification level of organizer handled below).
+    #    Imported/partner events have no platform organizer by definition —
+    #    their source is validated by the source_available check instead.
     organizer_ok = event.organizer is not None and event.organizer.is_verified
-    checks.append(("organizer_exists", event.organizer is not None,
-                   f"organizer={event.organizer.name if event.organizer else None}"))
+    if event.source in (EventSource.ORGANIZER, EventSource.USER_REQUEST):
+        checks.append(("organizer_exists", event.organizer is not None,
+                       f"organizer={event.organizer.name if event.organizer else None}"))
+    else:
+        checks.append(("organizer_external", True, f"source={event.source.value}"))
 
-    # 2. Date/time sane: not in the past, start before end
+    # 2. Date/time sane: internal consistency only. Verification may run at
+    # any moment — including after the event has started or finished — so a
+    # past starts_at is NOT evidence of a fake event and must not reject it.
     now = utcnow()
-    starts_ok = event.starts_at >= now - timedelta(days=1)
-    checks.append(("datetime_actual", starts_ok, f"starts_at={event.starts_at.isoformat()}"))
+    is_past = event.starts_at < now
+    checks.append(("datetime_actual", True,
+                   f"starts_at={event.starts_at.isoformat()} (past={is_past})"))
     if event.ends_at is not None:
         checks.append(("interval_sane", event.ends_at > event.starts_at, "ends after start"))
 
@@ -74,16 +81,14 @@ def run_verification(db: Session, event: Event, actor_user_id: int | None = None
                    f"duplicate_of={duplicate.id if duplicate else None}"))
 
     failed = [name for name, ok, _ in checks if not ok]
-    if duplicate:
+    if duplicate or failed:
         new_status = VerificationStatus.REJECTED
     elif event.source in (EventSource.IMPORT, EventSource.PARTNER) and event.source_url:
         new_status = VerificationStatus.OFFICIAL
     elif organizer_ok:
         new_status = VerificationStatus.ORGANIZER_VERIFIED
-    elif not failed:
-        new_status = VerificationStatus.VERIFIED
     else:
-        new_status = VerificationStatus.REJECTED
+        new_status = VerificationStatus.VERIFIED
 
     record = EventVerification(
         event_id=event.id,

@@ -5,7 +5,9 @@
 """
 import pytest
 
-from tests.conftest import auth, make_event, make_resource, register_and_get_token
+from tests.conftest import (
+    auth, future_starts_at, make_event, make_resource, register_and_get_token
+)
 
 
 @pytest.fixture()
@@ -53,7 +55,7 @@ def test_user_can_create_queue_around_any_object(client):
     user = register_and_get_token(client, "creator@deals.example.com")
     r = client.post("/api/events", json={
         "title": "АЗС Газпромнефть — Ленинградское шоссе, 25",
-        "starts_at": "2026-09-20T08:00:00Z",
+        "starts_at": future_starts_at(days=3),
         "city": "Москва", "address": "Ленинградское шоссе, 25",
         "capacity": 40, "category": "GAS_STATION",
     }, headers=auth(user))
@@ -72,7 +74,7 @@ def test_user_can_create_queue_around_any_object(client):
     # duplicate protection (раздел 6)
     r = client.post("/api/events", json={
         "title": "АЗС Газпромнефть — Ленинградское шоссе, 25",
-        "starts_at": "2026-09-20T08:00:00Z",
+        "starts_at": future_starts_at(days=3),
         "city": "Москва", "capacity": 40, "category": "GAS_STATION",
     }, headers=auth(user))
     assert r.status_code == 409

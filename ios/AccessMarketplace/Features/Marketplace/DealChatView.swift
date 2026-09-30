@@ -170,6 +170,7 @@ struct DealChatView: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
             }
+            .accessibilityLabel("Отправить")
             .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                       || model.isSending)
         }

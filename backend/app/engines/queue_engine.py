@@ -69,6 +69,21 @@ def join_queue(
         if not invite_code or not _validate_invite(resource, invite_code):
             raise QueueEngineError("INVITE_REQUIRED", "Valid invite code required", 403)
 
+    # capacity guard: a queue must not oversell the resource (the reservation
+    # path enforces this via availability; the join path must too)
+    if resource.capacity is not None and policy in ("FIFO", "PRIORITY"):
+        active_rights = db.scalar(
+            select(func.count(AccessRight.id)).where(
+                AccessRight.queue_id == queue.id,
+                AccessRight.status.in_([
+                    AccessRightStatus.OWNED, AccessRightStatus.LISTED,
+                    AccessRightStatus.TRANSFER_PENDING, AccessRightStatus.RESERVED,
+                ]),
+            )
+        ) or 0
+        if active_rights >= resource.capacity:
+            raise QueueEngineError("QUEUE_FULL", "Queue has reached its capacity", 409)
+
     membership = QueueMembership(
         queue_id=queue.id,
         user_id=user_id,
@@ -149,6 +164,15 @@ def leave_queue(db: Session, user_id: int, resource: Resource) -> None:
     )
     if right:
         right.status = AccessRightStatus.CANCELLED
+        # deactivate the listing so the marketplace never shows a place that
+        # its owner has already given up (zombie listing)
+        from app.models import Listing
+        listing = db.scalar(
+            select(Listing).where(Listing.access_right_id == right.id,
+                                  Listing.is_active.is_(True)))
+        if listing:
+            listing.is_active = False
+            listing.closed_at = utcnow()
         audit(db, AuditEventType.ACCESS_RIGHT_CANCELLED, "AccessRight", right.id,
               actor_user_id=user_id, reason="left_queue")
     db.flush()

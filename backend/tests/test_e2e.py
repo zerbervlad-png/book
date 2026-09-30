@@ -6,7 +6,9 @@ E2E 3: Waitlist -> Available slot -> Reservation -> Confirmation.
 E2E 4: Ticket -> Transfer -> Old token invalid -> New token valid.
 E2E 5: Check-in -> Token used -> repeated entry denied.
 """
-from tests.conftest import auth, make_event, make_resource, register, register_and_get_token
+from tests.conftest import (
+    auth, future_starts_at, make_event, make_resource, register, register_and_get_token,
+)
 
 
 # ---------------- E2E 1 ----------------
@@ -16,7 +18,7 @@ def test_e2e_1_event_verification_queue_position(client):
     event = make_event(client, org_token, title="Concert X — E2E1")
     # duplicate must be rejected (69)
     dup = client.post("/api/events", json={
-        "title": "Concert X — E2E1", "starts_at": "2026-09-25T20:00:00Z",
+        "title": "Concert X — E2E1", "starts_at": future_starts_at(),
         "city": "Moscow"}, headers=auth(org_token))
     assert dup.status_code == 409
     assert dup.json()["detail"]["code"] == "DUPLICATE_EVENT"

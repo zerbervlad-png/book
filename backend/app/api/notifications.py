@@ -1,5 +1,5 @@
 """Notifications API — section 44."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -22,8 +22,11 @@ def my_notifications(unread_only: bool = False, db: Session = Depends(get_db),
 
 @router.post("/{notification_id}/read", status_code=204)
 def mark_read(notification_id: int, db: Session = Depends(get_db),
-               user: User = Depends(get_current_user)):
+              user: User = Depends(get_current_user)):
     notification = db.get(Notification, notification_id)
-    if notification and notification.user_id == user.id:
-        notification.is_read = True
-        db.commit()
+    if notification is None:
+        raise HTTPException(404, "Notification not found")
+    if notification.user_id != user.id:
+        raise HTTPException(403, "Not your notification")
+    notification.is_read = True
+    db.commit()

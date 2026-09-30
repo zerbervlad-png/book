@@ -7,7 +7,10 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.engines import audit as audit_engine
 from app.engines import payment as payment_engine
-from app.models import AuditEventType, Payment, User, UserBalance
+from app.models import (
+    AuditEventType, Payment, Reservation, ReservationStatus, Transfer, TransferStatus, User,
+    UserBalance,
+)
 from app.schemas import BalanceOut, PaymentOut, TopUpCreate
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -27,7 +30,7 @@ def topup(payload: TopUpCreate, db: Session = Depends(get_db),
     logic stays unchanged."""
     if payload.amount <= 0 or payload.amount > 1_000_000_00:
         raise HTTPException(400, detail={"code": "INVALID_AMOUNT",
-                                         "message": "Amount must be between 1 and 10 000 ₽"})
+                                         "message": "Amount must be between 1 and 1 000 000 ₽"})
     balance = payment_engine._balance(db, user.id)
     balance.available += payload.amount
     audit_engine.audit(db, AuditEventType.WALLET_TOPUP, "UserBalance", user.id,
@@ -64,10 +67,32 @@ def refund(payment_id: int, db: Session = Depends(get_db),
         raise HTTPException(404, "Payment not found")
     if user.role.value != "ADMIN" and payment.payer_user_id != user.id:
         raise HTTPException(403, "Only admin or payer can refund")
+    # goods-vs-money double spend: once the transfer is COMPLETED the buyer
+    # already owns the access right — a direct refund would leave them with
+    # both the money and the goods. Such payments are refunded only through
+    # the dispute flow, which also revokes the right.
+    if payment.transfer_id is not None:
+        transfer = db.get(Transfer, payment.transfer_id)
+        if transfer and transfer.status == TransferStatus.COMPLETED:
+            raise HTTPException(409, detail={
+                "code": "REFUND_FORBIDDEN",
+                "message": "Transfer is already completed — open a dispute to resolve"})
+    if payment.reservation_id is not None:
+        reservation = db.get(Reservation, payment.reservation_id)
+        if reservation and reservation.status == ReservationStatus.CONFIRMED:
+            raise HTTPException(409, detail={
+                "code": "REFUND_FORBIDDEN",
+                "message": "Reservation is already confirmed — cancel it first"})
     try:
         payment_engine.refund(db, payment)
     except payment_engine.PaymentError as e:
         raise HTTPException(e.status_code, detail={"code": e.code, "message": e.message})
+    # keep the denormalized flag in sync — a stale "CAPTURED" would let the
+    # user confirm a reservation whose payment was already refunded
+    if payment.reservation_id is not None:
+        reservation = db.get(Reservation, payment.reservation_id)
+        if reservation and reservation.status != ReservationStatus.CANCELLED:
+            reservation.payment_status = "REFUNDED"
     db.commit()
     db.refresh(payment)
     return payment

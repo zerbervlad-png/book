@@ -7,6 +7,8 @@ Test accounts:
 
 Idempotent — safe to run multiple times.
 """
+from datetime import datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -34,17 +36,30 @@ def login(client, email, password):
     return r.json()["access_token"]
 
 
+def _future(days):
+    return (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def make_event(client, token, **payload):
     body = {
         "title": payload["title"],
         "description": payload.get("description", ""),
-        "starts_at": "2026-10-15T19:00:00Z",
+        "starts_at": payload.get("starts_at", _future(14)),
         "city": payload.get("city", "Москва"),
         "capacity": payload.get("capacity", 5000),
         "category": payload.get("category", "CONCERT"),
     }
     r = client.post("/api/events", json=body, headers=auth(token))
     assert r.status_code in (201, 409), r.text
+    if r.status_code == 409:
+        # a canonical duplicate already exists — fetch and return it instead
+        # of the error envelope (otherwise ["id"] raises KeyError)
+        found = client.get("/api/events", params={"q": body["title"]},
+                           headers=auth(token)).json()
+        for event in found:
+            if event["title"] == body["title"]:
+                return event
+        raise AssertionError(f"Duplicate event not found: {body['title']}")
     return r.json()
 
 
@@ -69,6 +84,10 @@ def main():
             login(client, ORG_EMAIL, ORG_PASSWORD)
             print("Демо-данные уже существуют — вход проверен.")
             return
+        # normalize tokens: on a partial re-run one account may already exist
+        # (409) while the other is fresh — a None token would 401 silently
+        demo_token = demo_token or login(client, DEMO_EMAIL, DEMO_PASSWORD)
+        org_token = org_token or login(client, ORG_EMAIL, ORG_PASSWORD)
 
         client.post("/api/organizers", json={"name": "Прайм Промоушн"},
                     headers=auth(org_token))
@@ -122,7 +141,6 @@ def main():
                       "Воркшопы (слоты по 90 минут)", 300, price_base=2500)
 
         # --- активность от демо-пользователя ---
-        demo_token = demo_token or login(client, DEMO_EMAIL, DEMO_PASSWORD)
         r = client.post(f"/api/queues/resources/{queue['id']}/join", json={},
                         headers=auth(demo_token))
         if r.status_code == 201:
@@ -137,6 +155,7 @@ def main():
         # --- другой пользователь продаёт свою позицию — раздел «Предложения» ---
         bot_token = register(client, "bot@access.marketplace", "Bot1234pass!",
                              "Кирилл Перепродажа")
+        bot_token = bot_token or login(client, "bot@access.marketplace", "Bot1234pass!")
         if bot_token:
             r = client.post(f"/api/queues/resources/{queue['id']}/join", json={},
                             headers=auth(bot_token))
@@ -153,7 +172,7 @@ def main():
             "title": "АЗС Газпромнефть — Ленинградское шоссе, 25",
             "description": "Живая очередь на заправку: колонки, мойка и магазин. "
                            "Занимайте место удалённо и передавайте его другим.",
-            "starts_at": "2026-09-20T08:00:00Z",
+            "starts_at": _future(3),
             "city": "Москва", "address": "Ленинградское шоссе, 25",
             "capacity": 40, "category": "GAS_STATION",
         }, headers=auth(demo_token))

@@ -104,12 +104,13 @@ def search_events(
 ):
     stmt = select(Event)
     if q:
-        like = f"%{q.lower()}%"
+        like = f"%{q}%"
         stmt = stmt.where(or_(Event.title.ilike(like), Event.description.ilike(like)))
     if category:
         stmt = stmt.where(Event.category == category)
     if city:
-        stmt = stmt.where(Event.city == city)
+        # case-insensitive like the free-text search (seed data mixes cases)
+        stmt = stmt.where(Event.city.ilike(city))
     if date_from:
         stmt = stmt.where(Event.starts_at >= date_from)
     if date_to:

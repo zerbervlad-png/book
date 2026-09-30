@@ -94,16 +94,24 @@ struct MyAccessView: View {
 
     private func listForSale(_ right: AccessRightDTO, price: String) async {
         let trimmed = price.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty, Int(trimmed) == nil {
-            transferError = "Цена должна быть целым числом"
+        // empty price = «Передать даром» (free listing, price omitted);
+        // a filled price must be a positive integer
+        let value: Int?
+        if trimmed.isEmpty {
+            value = nil
+        } else if let v = Int(trimmed), v > 0 {
+            value = v
+        } else {
+            transferError = "Цена должна быть целым числом больше нуля"
             return
         }
         do {
-            let value = Int(trimmed)
-            let body: [String: AnyEncodable?] = [
+            var body: [String: AnyEncodable?] = [
                 "access_right_id": AnyEncodable(right.id),
-                "price": value.map { AnyEncodable($0) },
             ]
+            if let value {
+                body["price"] = AnyEncodable(value)
+            }
             struct ListingResponse: Codable { let id: Int }
             let _: ListingResponse = try await APIClient.shared.request(
                 "POST", "/transfers/listings", body: body.compactMapValues { $0 },

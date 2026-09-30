@@ -80,13 +80,21 @@ final class CreateQueueViewModel: ObservableObject {
                     capacity: capacity,
                     category: category),
                 as: EventDTO.self)
-            let _: ResourceDTO = try await APIClient.shared.request(
-                "POST", "resources",
-                body: CreateResourceBody(
-                    eventId: event.id,
-                    name: "Очередь (FIFO)",
-                    capacity: capacity),
-                as: ResourceDTO.self)
+            do {
+                let _: ResourceDTO = try await APIClient.shared.request(
+                    "POST", "resources",
+                    body: CreateResourceBody(
+                        eventId: event.id,
+                        name: "Очередь (FIFO)",
+                        capacity: capacity),
+                    as: ResourceDTO.self)
+            } catch {
+                // resource failed — cancel the just-created event so a retry
+                // does not collide with an orphaned DRAFT duplicate
+                let _: EventDTO? = try? await APIClient.shared.request(
+                    "POST", "events/\(event.id)/cancel", as: EventDTO.self)
+                throw error
+            }
             createdMessage = "Очередь создана и отправлена на проверку. " +
                 "Другие пользователи уже могут её найти и занять место."
             error = nil

@@ -228,7 +228,10 @@ struct ResourceRow: View {
     }
 
     private var canJoin: Bool {
-        availability.map { $0.available > 0 || resource.type.contains("QUEUE") } ?? true
+        // a waitlist exists precisely for the "nothing available" case —
+        // joining it must stay possible when available == 0
+        if resource.type == "WAITLIST" { return true }
+        return availability.map { $0.available > 0 || resource.type.contains("QUEUE") } ?? true
     }
 
     private var actionTitle: String {

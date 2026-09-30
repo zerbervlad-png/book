@@ -42,9 +42,12 @@ def _add_risk(db: Session, user_id: int, points: float, reason: str) -> float:
 def check_registration_burst(db: Session, email_domain: str) -> None:
     """Mass creation of accounts from one domain in a short window."""
     window_start = utcnow() - timedelta(hours=1)
+    # escape LIKE wildcards — the domain is user-controlled input
+    escaped = (email_domain.replace("\\", "\\\\")
+               .replace("%", "\\%").replace("_", "\\_"))
     count = db.scalar(
         select(func.count(User.id)).where(
-            User.email.like(f"%@{email_domain}"),
+            User.email.like(f"%@{escaped}", escape="\\"),
             User.created_at >= window_start,
         )
     ) or 0
@@ -119,7 +122,7 @@ def record_gps_telemetry(db: Session, user_id: int, lat: float | None, lng: floa
             select(UserTelemetry).where(UserTelemetry.user_id == user_id)
             .order_by(UserTelemetry.recorded_at.desc()).limit(1)
         )
-        if last and last.lat is not None:
+        if last and last.lat is not None and last.lng is not None:
             dt = (utcnow() - last.recorded_at).total_seconds()
             dist_m = ((lat - last.lat) ** 2 + (lng - last.lng) ** 2) ** 0.5 * 111_000
             if dt > 0 and dist_m / dt > 900:  # >900 m/s

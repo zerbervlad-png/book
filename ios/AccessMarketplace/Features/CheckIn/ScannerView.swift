@@ -6,7 +6,7 @@ import AVFoundation
 @MainActor
 final class ScannerViewModel: ObservableObject {
     @Published var result: String?
-    @Published var resultColor: Color = .green
+    @Published var isSuccess = false
     @Published var isSubmitting = false
 
     private var lastSubmittedCode: String?
@@ -14,13 +14,12 @@ final class ScannerViewModel: ObservableObject {
 
     func submit(code: String) async {
         // debounce: a QR held in front of the camera fires dozens of frames;
-        // without a cooldown the same token gets POSTed repeatedly
+        // without a cooldown the same token gets POSTed repeatedly.
+        // A FAILED attempt is not recorded, so the operator can retry at once.
         let now = Date()
         if isSubmitting || (code == lastSubmittedCode && now.timeIntervalSince(lastSubmittedAt) < 3) {
             return
         }
-        lastSubmittedCode = code
-        lastSubmittedAt = now
         isSubmitting = true
         defer { isSubmitting = false }
         let body: [String: AnyEncodable?] = [
@@ -32,11 +31,13 @@ final class ScannerViewModel: ObservableObject {
                 "POST", "/checkins", body: body.compactMapValues { $0 },
                 as: CheckInResultDTO.self)
             result = resultTitle(dto.result)
-            resultColor = dto.result == "VALID" ? .green : .orange
+            isSuccess = dto.result == "VALID"
+            lastSubmittedCode = code
+            lastSubmittedAt = now
         } catch {
             // оффлайн / ошибка бэкенда — критичные операции невозможны (43)
             result = (error as? LocalizedError)?.errorDescription ?? "Ошибка чек-ина"
-            resultColor = .red
+            isSuccess = false
         }
     }
 
@@ -98,13 +99,13 @@ struct ScannerView: View {
             .accessibilityLabel("Камера для сканирования QR-кода")
 
             if let result = model.result {
-                Label(result, systemImage: model.resultColor == .green
+                Label(result, systemImage: model.isSuccess
                       ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .font(.title3.bold())
-                    .foregroundStyle(model.resultColor)
+                    .foregroundStyle(model.isSuccess ? .green : .orange)
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(RoundedRectangle(cornerRadius: 14)
-                        .fill(model.resultColor.opacity(0.1)))
+                        .fill(model.isSuccess ? Color.green.opacity(0.1) : Color.orange.opacity(0.1)))
             }
             if model.isSubmitting {
                 ProgressView()

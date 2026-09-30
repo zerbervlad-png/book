@@ -12,9 +12,13 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not auth.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
     payload = decode_access_token(auth.removeprefix("Bearer ").strip())
-    if payload is None:
+    if payload is None or "sub" not in payload:
         raise HTTPException(401, "Invalid or expired token")
-    user = db.get(User, int(payload["sub"]))
+    try:
+        user_id = int(payload["sub"])
+    except (TypeError, ValueError):
+        raise HTTPException(401, "Invalid or expired token")
+    user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise HTTPException(401, "User not found or blocked")
     return user

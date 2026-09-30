@@ -13,15 +13,18 @@
 set -e
 cd "$(dirname "$0")"
 
+# guard BEFORE the xcode-select probe: on Linux the probe fails and prints
+# a misleading "Installing Xcode Command Line Tools" message
+if [ "$(uname)" != "Darwin" ]; then
+  echo "This script must run on macOS."; exit 1
+fi
+
 echo "==> [1/5] Checking Xcode command line tools..."
 if ! xcode-select -p >/dev/null 2>&1; then
   echo "    Installing Xcode Command Line Tools (GUI prompt may appear)..."
   xcode-select --install || true
   echo "    Re-run setup.sh after the tools finish installing."
   exit 1
-fi
-if [ "$(uname)" != "Darwin" ]; then
-  echo "This script must run on macOS."; exit 1
 fi
 
 echo "==> [2/5] Checking Homebrew..."
@@ -49,9 +52,14 @@ fi
 echo "    Using $PYTHON ($($PYTHON --version))"
 cd backend
 if [ ! -d .venv ]; then "$PYTHON" -m venv .venv; fi
+# recreate the venv unconditionally when its Python is stale — `deactivate`
+# may be undefined before `source` and would abort under `set -e`
+if ! .venv/bin/python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  echo "    venv is on an old Python — recreating..."
+  rm -rf .venv
+  "$PYTHON" -m venv .venv
+fi
 source .venv/bin/activate
-python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
-  || { echo "    venv is on an old Python — recreating..."; deactivate; rm -rf .venv; "$PYTHON" -m venv .venv; source .venv/bin/activate; }
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
 echo "    Seeding demo data + test accounts..."
@@ -60,8 +68,16 @@ deactivate
 cd ..
 
 echo "==> [4/5] Pointing the iOS app at this Mac..."
-IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
-[ -z "$IP" ] && IP="$(ipconfig getifaddr en1 2>/dev/null || true)"
+# scan every interface (USB/Ethernet adapters are en5, en6, …), skip loopback
+# and self-assigned 169.254.x.x addresses which cannot reach a real device
+IP=""
+for iface in $(ifconfig -l 2>/dev/null); do
+  addr="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+  if [ -n "$addr" ] && [ "$iface" != "lo0" ] \
+     && ! echo "$addr" | grep -q "^169\.254\."; then
+    IP="$addr"; break
+  fi
+done
 if [ -z "$IP" ]; then
   echo "    Could not detect Wi-Fi IP — falling back to localhost (simulator only)."
   IP="localhost"

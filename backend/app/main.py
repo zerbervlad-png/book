@@ -99,6 +99,10 @@ def _bootstrap_admin() -> None:
         logging.getLogger(__name__).warning(
             "Admin account uses the default development password — "
             "set AM_ADMIN_PASSWORD before deploying.")
+    if settings.JWT_SECRET == "dev-insecure-jwt-secret-change-me":
+        logging.getLogger(__name__).warning(
+            "AM_JWT_SECRET is not set — anyone can forge admin tokens with the "
+            "default secret. Set AM_JWT_SECRET before deploying.")
     with SessionLocal() as db:
         if not db.scalar(select(User).where(User.role == UserRole.ADMIN)):
             db.add(User(

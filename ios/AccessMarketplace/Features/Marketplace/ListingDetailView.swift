@@ -48,12 +48,18 @@ final class ListingDetailViewModel: ObservableObject {
                        "idempotency_key": AnyEncodable(UUID().uuidString)],
                 as: BuyResponse.self)
             if transfer.price != nil {
-                // расчёт: авторизация + захват; комиссия удерживается из суммы продавца
+                // расчёт: авторизация + захват; комиссия удерживается из суммы продавца.
+                // 409 PAYMENT_NOT_REQUIRED значит, что платёж уже прошёл (повтор после
+                // обрыва сети) — это успех, а не ошибка.
                 struct PayResponse: Codable { let id: Int }
-                let _: PayResponse = try await APIClient.shared.request(
-                    "POST", "transfers/\(transfer.id)/pay",
-                    body: ["idempotency_key": AnyEncodable(UUID().uuidString)],
-                    as: PayResponse.self)
+                do {
+                    let _: PayResponse = try await APIClient.shared.request(
+                        "POST", "transfers/\(transfer.id)/pay",
+                        body: ["idempotency_key": AnyEncodable(UUID().uuidString)],
+                        as: PayResponse.self)
+                } catch APIError.server(let code, _, _) where code == "PAYMENT_NOT_REQUIRED" {
+                    // already paid — treat as success
+                }
             }
             resultMessage = "Место передано вам. Новый токен доступа — в разделе «Мой доступ»."
             error = nil

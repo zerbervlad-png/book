@@ -255,8 +255,9 @@ struct EventRow: View {
     }
 
     private var isVerified: Bool {
-        event.verificationStatus.contains("VERIFIED")
-            || event.verificationStatus == "OFFICIAL"
+        // exact matches only: "UNVERIFIED".contains("VERIFIED") is also true,
+        // which showed the green checkmark on unverified events
+        ["VERIFIED", "ORGANIZER_VERIFIED", "OFFICIAL"].contains(event.verificationStatus)
     }
 
     private var categoryIcon: String {

@@ -1,6 +1,7 @@
 """Shared fixtures."""
 import os
 import tempfile
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,11 +40,17 @@ def auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def future_starts_at(days=7):
+    """Deterministic future date shared by fixtures/tests (avoids time bombs)."""
+    return (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%dT20:00:00Z")
+
+
 def make_event(client, token, title="Concert X", city="Moscow",
                capacity=10000, **extra):
+    # always in the future — a hardcoded date would break the suite over time
     payload = {
         "title": title,
-        "starts_at": "2026-09-25T20:00:00Z",
+        "starts_at": future_starts_at(),
         "city": city,
         "capacity": capacity,
         "category": "CONCERT",

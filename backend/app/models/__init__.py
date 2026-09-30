@@ -10,6 +10,6 @@ __all__ = [
     "AccessRight", "AuditEvent", "CheckIn", "DealMessage", "Dispute", "Event",
     "EventReport", "EventVerification", "IdempotencyRecord", "Listing", "Notification",
     "Organizer", "Payment", "Queue", "QueueMembership", "Reservation", "Resource",
-    "Transfer", "User", "UserBalance", "UserTelemetry", "Waitlist", "WaitlistEntry",
-    "utcnow",
+    "Transfer", "TransferStatus", "User", "UserBalance", "UserTelemetry", "Waitlist",
+    "WaitlistEntry", "utcnow",
 ]

@@ -24,7 +24,7 @@ final class AuthManager: ObservableObject {
             let dto: TokenDTO = try await APIClient.shared.request("POST", "/auth/login", body: body)
             apply(dto)
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Login failed"
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось войти"
         }
     }
 
@@ -34,7 +34,7 @@ final class AuthManager: ObservableObject {
             let dto: TokenDTO = try await APIClient.shared.request("POST", "/auth/register", body: body)
             apply(dto)
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Registration failed"
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Не удалось зарегистрироваться"
         }
     }
 

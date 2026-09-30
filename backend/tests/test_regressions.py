@@ -6,7 +6,9 @@ waitlist flow, organizer approval, notifications, analytics, rate limiting.
 """
 import concurrent.futures
 
-from tests.conftest import auth, make_event, make_resource, register, register_and_get_token
+from tests.conftest import (
+    auth, future_starts_at, make_event, make_resource, register, register_and_get_token,
+)
 
 
 def _setup(client, rtype="EVENT_QUEUE", **res_kwargs):
@@ -268,7 +270,7 @@ def test_duplicate_event_rejected(client):
     client.post("/api/organizers", json={"name": "Dup Organizer"}, headers=auth(org_token))
     make_event(client, org_token, title="Unique Show", city="Kazan")
     r = client.post("/api/events", json={
-        "title": "Unique Show", "starts_at": "2026-09-25T20:00:00Z",
+        "title": "Unique Show", "starts_at": future_starts_at(),
         "city": "Kazan", "capacity": 100, "category": "CONCERT"},
         headers=auth(org_token))
     assert r.status_code == 409

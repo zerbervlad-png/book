@@ -71,38 +71,48 @@ cd backend
 python -m pytest tests -q
 ```
 
-20 тестов, включая обязательные E2E (раздел 63) и негативные сценарии (раздел 64):
+75 тестов (7 файлов), включая обязательные E2E (раздел 63) и негативные сценарии (раздел 64):
 duplicate transfer/payment, expired reservation/token, cancelled event, invalid/reused
-QR, simultaneous purchase/transfer, GPS-spoof, offline-поведение клиента.
+QR, simultaneous purchase/transfer, GPS-spoof, offline-поведение клиента,
+запрет рефанда завершённой сделки, capacity-контроль очереди, споры (disputes).
 
 ### API (раздел 38)
 
-`/api/auth` · `/users` · `/organizers` · `/events` (+verify/cancel/inventory) ·
+`/api/auth` · `/users` · `/organizers` · `/events` (+verify/cancel/inventory/report) ·
 `/resources` (+availability) · `/queues` · `/waitlists` · `/access` (+qr/code) ·
-`/reservations` · `/transfers` (+listings/buy/gift/pay/approve) · `/payments` ·
-`/checkins` · `/disputes` · `/marketplace` · `/notifications` · `/analytics` · `/health`
+`/reservations` · `/transfers` (+listings/buy/gift/pay/approve/messages) ·
+`/payments` (+topup/balance/refund) · `/checkins` · `/disputes` ·
+`/marketplace` · `/notifications` · `/analytics` (+audit)
+
+`/health` публикуется в корне (без префикса `/api`).
 
 ### Переменные окружения
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
 | `AM_DATABASE_URL` | `sqlite:///./access_marketplace.db` | строка подключения SQLAlchemy |
-| `AM_JWT_SECRET` | dev-значение | секрет JWT (обязательно задайте в production — фиксированный, иначе токены слетают при рестарте) |
+| `AM_JWT_SECRET` | dev-значение | секрет JWT (обязательно задайте в production — фиксированный, иначе токены слетают при рестарте; при dev-значении при старте пишется warning) |
 | `AM_ADMIN_EMAIL` / `AM_ADMIN_PASSWORD` | `admin@access.marketplace` / `ChangeMe-Admin-2026!` | учётка bootstrap-админа (всегда переопределяйте в production) |
 | `AM_CORS_ORIGINS` | `*` | разрешённые CORS-источники через запятую; при `*` credentials отключены |
+| `AM_WALLET_AUTO_TOPUP` | `1` | демо-режим: автоматически пополнять кошелёк при нехватке средств. **В production обязательно `0`** — иначе платежи «проходят» без реальных денег |
+| `AM_TOKEN_TTL` | 43200 | TTL access-токена, сек |
 | `AM_RESERVATION_TTL` | 900 | TTL резерва, сек |
 | `AM_WAITLIST_OFFER_TTL` | 1800 | окно подтверждения waitlist-оффера |
+| `AM_TRANSFER_TTL` | 900 | окно сделки (transfer), сек |
 | `AM_PLATFORM_FEE` | 5 | комиссия платформы, % |
+| `AM_RATE_LIMIT` | 240 | лимит мутаций в минуту на IP |
 
 **Конвенция времени**: все timestamp хранятся как naive-UTC (SQLite теряет tzinfo).
 Для PostgreSQL добавьте фиксированный timezone-адаптер.
 
 ## iOS
 
-Требования: Xcode 15+, iOS 17. Откройте новый проект iOS App `AccessMarketplace`,
-добавьте все `.swift` из `ios/AccessMarketplace/`, укажите `NSCameraUsageDescription`
-(сканер QR) и, опционально, `NSLocationWhenInUseUsageDescription` (GPS — только
-auxiliary, раздел 10). `APIClient.baseURL` направьте на развёрнутый backend.
+Требования: Xcode 15+, iOS 17. Проще всего — `bash setup.sh` (или `xcodegen` в `ios/`):
+скрипт сгенерирует `AccessMarketplace.xcodeproj` из `ios/project.yml`, где уже заданы
+`NSCameraUsageDescription` (сканер QR), ATS для локальной сети и `APIClient.baseURL`.
+Ручной путь: создайте проект iOS App `AccessMarketplace`, добавьте все `.swift` из
+`ios/AccessMarketplace/` и перенесите настройки Info.plist из `project.yml`.
+GPS — только auxiliary (раздел 10).
 
 Отвечает Apple-требованиям: Dynamic Type, Dark Mode, safe areas, accessibility
 (раздел 66). Сборка возможна только на macOS/Xcode.
@@ -112,7 +122,7 @@ auxiliary, раздел 10). `APIClient.baseURL` направьте на раз�
 ```
 10:00  User A вступает в очередь на Concert X → позиция #148 (AccessRight AT-…)
 12:00  User A выставляет позицию на marketplace (цена + комиссия видны покупателю)
-13:15  User B покупает: блокировка → PAYMENT → VERIFICATION → TOKEN LOCK
+13:15  User B покупает: блокировка (TRANSFER_PENDING) → PAYMENT → VERIFICATION
 13:16  Позиция #148 → User B; токен A инвалидирован, B получил новый
 18:00  User B приходит на мероприятие
 18:05  QR check-in (одноразовый код)

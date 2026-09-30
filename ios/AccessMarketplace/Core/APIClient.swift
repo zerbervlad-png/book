@@ -22,7 +22,8 @@ enum APIError: LocalizedError {
 }
 
 struct APIEnvelope: Decodable {
-    // Backend error envelope: {"detail": {"code": ..., "message": ...}}
+    // Backend error envelope: {"detail": {"code": ..., "message": ...}}.
+    // `message` may also be an array (422 validation errors) — decode both.
     let code: String?
     let message: String?
 
@@ -34,8 +35,21 @@ struct APIEnvelope: Decodable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys2.self)
             code = (try? c.decode(String.self, forKey: CodingKeys2.code)) ?? "ERROR"
-            message = (try? c.decode(String.self, forKey: CodingKeys2.message))
+            if let s = try? c.decode(String.self, forKey: CodingKeys2.message) {
+                message = s
+            } else if let list = try? c.decode([String].self, forKey: CodingKeys2.message) {
+                message = list.joined(separator: "; ")
+            } else if let raw = try? c.decode([MessageItem].self, forKey: CodingKeys2.message) {
+                message = raw.compactMap(\.msg).joined(separator: "; ")
+            } else {
+                message = nil
+            }
             enum CodingKeys2: String, CodingKey { case code, message }
+        }
+
+        struct MessageItem: Decodable {
+            let msg: String?
+            enum CodingKeys: String, CodingKey { case msg = "msg" }
         }
     }
 
@@ -57,8 +71,29 @@ final class APIClient {
 
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
+        // backend timestamps may carry fractional seconds depending on the
+        // DB — plain .iso8601 fails to decode those
+        d.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            if let date = Self.isoFractional.date(from: raw) { return date }
+            if let date = Self.isoPlain.date(from: raw) { return date }
+            throw DecodingError.dataCorruptedError(in: container,
+                                                    debugDescription: "Unparseable date: \(raw)")
+        }
         return d
+    }()
+
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
     }()
 
     private let encoder: JSONEncoder = {
@@ -75,8 +110,11 @@ final class APIClient {
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
+        // a trailing slash in the base URL would produce "//" paths
+        let basePath = comps.path.hasSuffix("/")
+            ? String(comps.path.dropLast()) : comps.path
         let pathPart = parts[0].hasPrefix("/") ? parts[0] : "/" + parts[0]
-        comps.path = comps.path + pathPart
+        comps.path = basePath + pathPart
         if parts.count > 1 {
             comps.percentEncodedQuery = parts[1]
         }
@@ -124,6 +162,7 @@ final class APIClient {
             throw APIError.network(error)
         }
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidURL }
+        if http.statusCode == 401 { throw APIError.unauthorized }
         guard (200..<300).contains(http.statusCode) else {
             // previously 401/500 bodies were handed to UIImage silently
             let env = try? decoder.decode(APIEnvelope.self, from: data)

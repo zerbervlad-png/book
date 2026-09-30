@@ -28,7 +28,10 @@ def perform_checkin(payload: CheckInRequest, db: Session = Depends(get_db),
         raise HTTPException(400, f"Invalid method; allowed: {[m.value for m in CheckInMethod]}")
 
     from app.models import AccessRight
-    probe = db.scalar(select(AccessRight).where(AccessRight.token_code == payload.token.strip()))
+    # resolve the right for BOTH the token and the one-time-code path —
+    # otherwise an OTP check-in would skip the permission check entirely and
+    # any user could burn someone else's right
+    probe = checkin_engine._find_right(db, payload.token)
     if probe is not None:
         is_owner = probe.owner_user_id == user.id
         is_organizer = probe.resource.event.organizer_id is not None and \
